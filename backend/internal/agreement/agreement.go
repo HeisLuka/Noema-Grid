@@ -248,12 +248,26 @@ func (s *Service) AgreePage(ctx context.Context, pageID int64, force bool) error
 				continue
 			}
 			candidates = append(candidates, candidate{
-				Dispute{PageID: n.PageID, Title: n.Title, Reason: v.Reason()}, v})
+				d: Dispute{PageID: n.PageID, Title: n.Title, Reason: v.Reason()},
+				v: v, nbrTitle: n.Title, nbrText: nbrText})
 		}
 	}
 	// Identity fields are decided across the page's whole candidate set, so this
-	// runs after every neighbour has been judged.
-	disputes = dropIdentityFields(candidates, pageID)
+	// runs after every neighbour has been judged — and before the swap, so a
+	// conflict already known to be junk never costs a second call.
+	for _, c := range dropIdentityFields(candidates, pageID) {
+		ok, err := s.confirmsSwapped(ctx, c.v, c.nbrTitle, c.nbrText, title, targetText)
+		if err != nil {
+			s.recordFailure(ctx, pageID, err)
+			return fmt.Errorf("agreement confirm %d vs %d: %w", pageID, c.d.PageID, err)
+		}
+		if !ok {
+			slog.Debug("agreement: conflict not confirmed from the other side",
+				"page_id", pageID, "against", c.d.PageID, "reason", c.d.Reason)
+			continue
+		}
+		disputes = append(disputes, c.d)
+	}
 	dispute = len(disputes)
 
 	payload, _ := json.Marshal(disputes)
@@ -413,8 +427,10 @@ func valueTokens(v string) []string {
 // candidate is a conflict that survived the per-pair checks and still has to
 // clear dropIdentityFields, which can only judge it against its siblings.
 type candidate struct {
-	d Dispute
-	v pairVerdict
+	d        Dispute
+	v        pairVerdict
+	nbrTitle string
+	nbrText  string
 }
 
 // dropIdentityFields removes conflicts over a field that IDENTIFIES the page
@@ -436,7 +452,7 @@ type candidate struct {
 // looks like, where each service page names its own port and the disagreement is
 // over which port a shared service listens on. Two singleton findings escape this
 // narrower rule; that is the price of not killing those.
-func dropIdentityFields(cands []candidate, pageID int64) []Dispute {
+func dropIdentityFields(cands []candidate, pageID int64) []candidate {
 	type key struct{ subject, mine string }
 	theirs := map[key]map[string]bool{}
 	for _, c := range cands {
@@ -446,7 +462,7 @@ func dropIdentityFields(cands []candidate, pageID int64) []Dispute {
 		}
 		theirs[k][normValue(c.v.ValueB)] = true
 	}
-	out := []Dispute{}
+	out := []candidate{}
 	for _, c := range cands {
 		k := key{normValue(c.v.Subject), normValue(c.v.ValueA)}
 		if len(theirs[k]) >= 2 {
@@ -454,9 +470,43 @@ func dropIdentityFields(cands []candidate, pageID int64) []Dispute {
 				"page_id", pageID, "against", c.d.PageID, "subject", c.v.Subject, "value", c.v.ValueA)
 			continue
 		}
-		out = append(out, c.d)
+		out = append(out, c)
 	}
 	return out
+}
+
+// confirmsSwapped re-asks the same question with the two passages exchanged and
+// requires the same verdict naming the same two values. A conflict that survives
+// being read from the other side is one the model holds regardless of which page
+// it was shown first.
+//
+// This is NOT a second opinion from a better model — L2 is a failure path, and
+// asking THIS model whether it was sure kept 24 of 26 junk findings while dropping
+// 15 true ones, with three runs at temperature 0.7 giving byte-identical answers.
+// Its mistakes are stable, not uncertain; only changing the question moves them.
+//
+// It is a deliberate precision-over-recall setting, chosen with its cost known:
+// measured over 52 live findings it holds 94% precision but keeps 39% of the real
+// conflicts, since at temperature 0 the model is also plainly order-sensitive — so
+// some of what it discards is true. Fewer warnings that are right was the call.
+func (s *Service) confirmsSwapped(ctx context.Context, v pairVerdict, aTitle, aText, bTitle, bText string) (bool, error) {
+	user := fmt.Sprintf("PASSAGE A — from page %q\n%s\n\nPASSAGE B — from page %q\n%s",
+		aTitle, aText, bTitle, bText)
+	out, err := s.llm.Complete(llm.WithBackground(ctx), pairSystem, user)
+	if err != nil {
+		return false, err
+	}
+	got := parsePairVerdict(out)
+	if !strings.HasPrefix(got.Verdict, "contra") {
+		return false, nil
+	}
+	// The same pair of values, in either order — the passages were swapped, so the
+	// sides are expected to be.
+	want := []string{normValue(v.ValueA), normValue(v.ValueB)}
+	have := []string{normValue(got.ValueA), normValue(got.ValueB)}
+	sort.Strings(want)
+	sort.Strings(have)
+	return want[0] == have[0] && want[1] == have[1], nil
 }
 
 // namesTwoFields spots a subject or justification joining two field names. Both

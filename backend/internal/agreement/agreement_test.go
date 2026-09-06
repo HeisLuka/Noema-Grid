@@ -150,7 +150,7 @@ func TestClampMarksTruncationAtLineBoundary(t *testing.T) {
 func TestDropIdentityFields(t *testing.T) {
 	mk := func(nb int64, subject, a, b string) candidate {
 		v := pairVerdict{Subject: subject, ValueA: a, ValueB: b}
-		return candidate{Dispute{PageID: nb, Title: "n", Reason: v.Reason()}, v}
+		return candidate{d: Dispute{PageID: nb, Title: "n", Reason: v.Reason()}, v: v}
 	}
 	got := dropIdentityFields([]candidate{
 		// An identity field: one subject, my value fixed, three different theirs.
@@ -166,8 +166,8 @@ func TestDropIdentityFields(t *testing.T) {
 		mk(17, "service port", "8484", "8480"),
 	}, 1)
 	kept := map[int64]bool{}
-	for _, d := range got {
-		kept[d.PageID] = true
+	for _, c := range got {
+		kept[c.d.PageID] = true
 	}
 	for _, id := range []int64{11, 12, 13} {
 		if kept[id] {
