@@ -32,7 +32,10 @@ import (
 //     (raster) serve inline so `![](url)` renders; everything else is forced to
 //     download (Content-Disposition: attachment) + nosniff, so an embedded
 //     .html/.svg can't run as stored-XSS from our origin. /api/files/ is on
-//     auth.IsPublicPath, same shape as /api/images/ and /api/diagrams/.
+//     auth.IsPublicPath, same shape as /api/images/ and /api/diagrams/. A
+//     crawler UA asking for a non-image blob gets the file card instead of the
+//     bytes (file_page.go) — the link people share is /f/{hash}/{name}, but the
+//     blob URL is what is already pasted in a hundred places.
 
 // inlineServeMimes are the only types served inline from /api/files; everything
 // else downloads. Raster images only — SVG (image/svg+xml) is deliberately
@@ -342,6 +345,18 @@ func (s *Server) ServeSpaceFile(w http.ResponseWriter, r *http.Request) {
 	if !pageImageHashRE.MatchString(hash) { // 64 lowercase hex — shared validator
 		writeError(w, http.StatusNotFound, "not_found", "file not found")
 		return
+	}
+
+	// A link-preview crawler asked for the blob. Bytes are useless to it — a PDF
+	// or a .docx unfurls as nothing — so hand it the file page's card instead,
+	// which is what makes every /api/files link ALREADY pasted somewhere unfurl.
+	// Raster images are exempt: they serve inline inside page bodies and a
+	// fetcher asking for one wants the pixels.
+	if isBotUA(r.Header.Get("User-Agent")) {
+		if f, ferr := lookupSharedFile(r.Context(), s.DB, hash); ferr == nil && !inlineServeMimes[f.mime] {
+			s.writeFileOG(w, r, f)
+			return
+		}
 	}
 
 	etag := `"` + hash + `"`

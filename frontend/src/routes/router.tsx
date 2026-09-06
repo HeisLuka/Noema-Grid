@@ -815,6 +815,18 @@ const publicReaderRoute = createRoute({
   component: lazyRouteComponent(() => import('./public'), 'PublicReaderRoute'),
 })
 
+// The shareable file page: /f/{hash}[/{name}]. Child of rootRoute (NO ensureMe
+// gate) — the blob behind it is public-by-URL, so the page around it is too. One
+// route matches both shapes via the optional name, which is decorative: the hash
+// prefix resolves the file, so a renamed/re-shared copy still lands. Registered
+// BEFORE the handle routes so /f never looks like a handle. Lazy — it pulls in
+// pdf.js on demand.
+const fileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/f/$hash/{-$name}',
+  component: lazyRouteComponent(() => import('./file'), 'FileRoute'),
+})
+
 // Unified GitHub-style handle routes. Children of rootRoute (NO ensureMe gate —
 // a handle's public spaces are readable logged-out). These are the catch-all-ish
 // root routes: a single `/$handle` segment and `/$handle/$spaceSlug`. They MUST
@@ -886,8 +898,9 @@ const routeTree = rootRoute.addChildren([
   publicSpaceIndexRoute,
   publicReaderRoute,
   printRoute,
+  fileRoute,
   // Registered AFTER every explicit route so a static path (/login, /discover,
-  // /share, /public, …) always out-matches the single-segment handle route.
+  // /share, /public, /f, …) always out-matches the single-segment handle route.
   publicHandleRoute,
   publicHandleSpaceRoute,
   publicHandlePageRoute,

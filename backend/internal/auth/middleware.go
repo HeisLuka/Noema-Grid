@@ -355,6 +355,13 @@ func IsPublicPath(p string) bool {
 	if strings.HasPrefix(p, "/share/") {
 		return true
 	}
+	// Shareable file page (api/file_page.go): /f/{hash}[/{name}] + its og.png.
+	// Caddy bot-gates the HTML (humans get the SPA); the handler self-gates on
+	// the crawler UA and renders file metadata only — the same bytes the blob
+	// URL already serves to anyone holding it.
+	if strings.HasPrefix(p, "/f/") {
+		return true
+	}
 	// Crawler-facing SEO/social surfaces for public spaces. Caddy bot-gates
 	// /public/* and /u/* — only crawler UAs reach the backend here (humans get
 	// the SPA), and these handlers emit OG HTML + JSON-LD self-authenticating on

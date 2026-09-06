@@ -15,6 +15,7 @@ export const publicKeys = {
     [...publicKeys.all, 'page', spaceId, pageId] as const,
   discover: (sort: DiscoverSort, offset: number) =>
     [...publicKeys.all, 'discover', sort, offset] as const,
+  file: (hash: string) => [...publicKeys.all, 'file', hash] as const,
 }
 
 export interface PublicSpacePayload {
@@ -243,6 +244,33 @@ export function usePublicDiscover(sort: DiscoverSort, offset: number) {
       publicFetch(
         `/api/public/discover?sort=${sort}&limit=${DISCOVER_PAGE_SIZE}&offset=${offset}`,
       ),
+    retry: false,
+    staleTime: 60_000,
+  })
+}
+
+// A stored file resolved by content-hash prefix, for the /f/{hash}/{name} file
+// page. Public like the rest of this module: the blob it describes has always
+// been readable by anyone holding its URL. `page` is present only when the
+// file's space is public — a private page's title is not part of the deal.
+export interface PublicFilePayload {
+  hash: string
+  short: string
+  name: string
+  mime: string
+  kind: string
+  byte_size: number
+  /** The blob: download target and pdf.js/img source. */
+  url: string
+  /** Canonical /f/… path (name segment included). */
+  path: string
+  page?: { id: number; title: string; path: string; space_name: string }
+}
+
+export function usePublicFile(hash: string) {
+  return useQuery<{ file: PublicFilePayload }, PublicError>({
+    queryKey: publicKeys.file(hash),
+    queryFn: () => publicFetch(`/api/public/files/${encodeURIComponent(hash)}`),
     retry: false,
     staleTime: 60_000,
   })

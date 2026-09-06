@@ -38,6 +38,40 @@ The list/upload/delete handlers are thin wrappers over `listPageAttachmentsCore`
 / `uploadPageAttachmentCore` / `deletePageAttachmentCore` — the same cores the
 MCP tools call, so REST and agents share one code path.
 
+## Sharing a file
+
+`/api/files/…` is the BLOB. It forces a download, its name is a 64-hex hash, and
+it unfurls as nothing — pasted in Slack or WhatsApp it is a bare link. So it is
+not what a person should be handing to another person.
+
+**`/f/{hash12}/{filename}`** is (`api/file_page.go` + `routes/file.tsx`). It
+resolves any 8–64 hex *prefix* of the content hash — the filename segment is
+decorative, so a rename never breaks a link already shared — and renders the file
+in tela chrome: the PDF viewer for PDFs, the image inline, a download card
+otherwise, plus Copy link / Download and (public spaces only) a link back to the
+page it is attached to. The Attachments strip's chip copies THIS url
+(`lib/file-link.ts`); nothing in the UI hands out the blob URL any more.
+
+Bot-gated exactly like `/share` and `/public`: Caddy routes crawler UAs to the
+backend, which answers with an OG envelope + a `/f/{hash}/og.png` card (filename
+as the title, `PDF · 46 KB` under it); humans fall through to the SPA at the same
+path. The handler 404s a non-bot as defence in depth, so a missing Caddy gate is
+visible instead of serving the crawler envelope in place of the app.
+
+**The retrofit:** a crawler UA asking for a *non-image* `/api/files/…` blob gets
+that same card instead of the bytes, so the thousands of blob URLs already pasted
+somewhere unfurl too. Raster images are exempt — page bodies embed them and a
+fetcher asking for an image wants the pixels.
+
+**Disclosure.** The card carries filename, type and size — exactly what the
+blob's own `Content-Disposition` already tells anyone holding the URL. The parent
+page's title, and the file's auto-summary, appear ONLY when the owning space is
+public; a private space's file unfurls as "PDF · 46 KB · shared from tela".
+
+Adding a URL shape here means updating BOTH `deploy/proxy/sites.caddy` and
+`frontend/nginx.conf` — nginx serves the SPA shell as its 404 body, so a path
+missing from its allowlist renders perfectly while returning 404.
+
 ## MCP tools
 
 Agents get the same surface (put an image/PDF on a page, or read what's
@@ -84,7 +118,9 @@ inline in the reader via a client-side viewer (`ui/pdf-viewer.tsx`).
 ## Notes
 
 - **Serve identity is a capability hash.** Like `/api/images/`, anyone with the
-  URL can fetch the bytes regardless of space privacy. Fine for most wikis; if
+  URL can fetch the bytes regardless of space privacy — which is why the file
+  page above is public too, and why its card stops at what the blob already
+  discloses. Fine for most wikis; if
   strict private-space enforcement is needed, gate the serve route on visibility
   (costs the immutable-cache win).
 - **Storage** is Postgres `bytea`, capped per file by `TELA_WEBDAV_FILE_MAX_BYTES`

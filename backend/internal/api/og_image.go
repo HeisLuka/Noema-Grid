@@ -786,9 +786,14 @@ func drawLogoFit(dst *image.RGBA, logo image.Image, x, y, maxW, maxH int) int {
 
 // wrapLines greedily wraps text into at most maxLines lines that fit within
 // maxWidth pixels when drawn with face. The final line is suffixed with "…" if
-// remaining words would overflow. Whitespace-separated; existing newlines
-// inside the input are flattened to single spaces by the upstream caller (page
-// title is a single TEXT column with no newline convention).
+// remaining text would overflow. Whitespace-separated; existing newlines inside
+// the input are flattened to single spaces by the upstream caller (page title is
+// a single TEXT column with no newline convention).
+//
+// A word too long to fit is broken at a punctuation boundary (-, _, ., /) rather
+// than truncated on the spot — that is what a filename card ("attachment-sharing
+// -spec.pdf") or a URL needs, and those are exactly the titles with no spaces to
+// wrap at. Only when a word has no such boundary does it fall back to truncation.
 func wrapLines(face font.Face, text string, maxWidth, maxLines int) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -798,29 +803,29 @@ func wrapLines(face font.Face, text string, maxWidth, maxLines int) []string {
 		return nil
 	}
 
-	words := strings.Fields(text)
+	toks := wrapTokens(face, strings.Fields(text), maxWidth)
 	maxFixed := fixed.I(maxWidth)
 
 	lines := make([]string, 0, maxLines)
 	cur := ""
 	i := 0
-	for i < len(words) && len(lines) < maxLines {
+	for i < len(toks) && len(lines) < maxLines {
 		candidate := cur
 		if candidate == "" {
-			candidate = words[i]
+			candidate = toks[i].text
 		} else {
-			candidate = cur + " " + words[i]
+			candidate = cur + toks[i].sep() + toks[i].text
 		}
 		if font.MeasureString(face, candidate) <= maxFixed {
 			cur = candidate
 			i++
 			continue
 		}
-		// Adding this word overflowed.
+		// Adding this token overflowed.
 		if cur == "" {
-			// A single word longer than the line; force it onto its own line
-			// and truncate with ellipsis. Avoid getting stuck.
-			lines = append(lines, truncateToWidth(face, words[i], maxWidth))
+			// One token longer than the line even after boundary splitting;
+			// force it onto its own line, truncated. Avoid getting stuck.
+			lines = append(lines, truncateToWidth(face, toks[i].text, maxWidth))
 			i++
 			continue
 		}
@@ -832,18 +837,74 @@ func wrapLines(face font.Face, text string, maxWidth, maxLines int) []string {
 		cur = ""
 	}
 
-	// Words left over: the final line must collapse them with an ellipsis.
-	if i < len(words) {
+	// Tokens left over: the final line must collapse them with an ellipsis.
+	if i < len(toks) {
 		if len(lines) == 0 {
-			// maxLines was 0 or the very first word didn't fit even truncated.
-			return []string{truncateToWidth(face, strings.Join(words[i:], " "), maxWidth)}
+			// maxLines was 0 or the very first token didn't fit even truncated.
+			return []string{truncateToWidth(face, joinTokens(toks[i:]), maxWidth)}
 		}
 		last := lines[len(lines)-1]
-		remainder := last + " " + strings.Join(words[i:], " ")
+		remainder := last + toks[i].sep() + joinTokens(toks[i:])
 		lines[len(lines)-1] = truncateToWidth(face, remainder, maxWidth)
 	}
 
 	return lines
+}
+
+// wrapTok is one unit the wrapper may put on a line. `glued` tokens rejoin the
+// previous one with no space — the pieces a long word was broken into.
+type wrapTok struct {
+	text  string
+	glued bool
+}
+
+func (t wrapTok) sep() string {
+	if t.glued {
+		return ""
+	}
+	return " "
+}
+
+func joinTokens(toks []wrapTok) string {
+	var b strings.Builder
+	for i, t := range toks {
+		if i > 0 {
+			b.WriteString(t.sep())
+		}
+		b.WriteString(t.text)
+	}
+	return b.String()
+}
+
+// wrapBreakChars are where an over-long word may be broken. The break char stays
+// on the left piece, so "spec.pdf" reads as "spec." / "pdf" and never loses a
+// character across the line break.
+const wrapBreakChars = "-_./"
+
+// wrapTokens expands words that cannot fit on a line into glued pieces split at
+// wrapBreakChars. Words that fit (the overwhelming majority) pass through as one
+// token, so ordinary prose wraps exactly as before.
+func wrapTokens(face font.Face, words []string, maxWidth int) []wrapTok {
+	maxFixed := fixed.I(maxWidth)
+	out := make([]wrapTok, 0, len(words))
+	for _, w := range words {
+		if font.MeasureString(face, w) <= maxFixed {
+			out = append(out, wrapTok{text: w})
+			continue
+		}
+		start, first := 0, true
+		for i, r := range w {
+			if !strings.ContainsRune(wrapBreakChars, r) {
+				continue
+			}
+			out = append(out, wrapTok{text: w[start : i+1], glued: !first})
+			start, first = i+1, false
+		}
+		if start < len(w) {
+			out = append(out, wrapTok{text: w[start:], glued: !first})
+		}
+	}
+	return out
 }
 
 // truncateToWidth returns s if it fits within maxWidth, else the longest

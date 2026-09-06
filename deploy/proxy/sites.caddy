@@ -130,6 +130,30 @@
 		reverse_proxy {$TELA_UPSTREAM_FRONTEND:frontend:80}
 	}
 
+	# Shareable file pages (/f/{hash}/{name}, backend file_page.go): the link to
+	# share for an attachment, instead of the raw /api/files blob (which downloads
+	# and unfurls as nothing). og.png → backend for ALL UAs; the HTML is bot-gated
+	# and humans fall through to the SPA route of the same path. noindex — most of
+	# these files live in private spaces. Keep the UA regex in sync with
+	# botUASubstrings in backend/internal/api/public_share.go.
+	@file_og path /f/*/og.png
+	handle @file_og {
+		header X-Robots-Tag "noindex"
+		reverse_proxy {$TELA_UPSTREAM_BACKEND:backend:8080}
+	}
+	@file_bots {
+		path /f/*
+		header_regexp User-Agent "(?i)(slackbot-linkexpanding|twitterbot|facebookexternalhit|facebookcatalog|discordbot|telegrambot|linkedinbot|whatsapp|mastodon|cardyb|slack-imgproxy|pinterest|skypeuripreview|embedly|iframely|bot/|bot\s)"
+	}
+	handle @file_bots {
+		header X-Robots-Tag "noindex"
+		reverse_proxy {$TELA_UPSTREAM_BACKEND:backend:8080}
+	}
+	handle /f/* {
+		header X-Robots-Tag "noindex"
+		reverse_proxy {$TELA_UPSTREAM_FRONTEND:frontend:80}
+	}
+
 	# ── Public blog surfaces: indexable + social unfurls ────────────────────
 	# Public spaces (/public/*) and author homes (/u/*) are meant for the open
 	# web, so — unlike the rest of the app SPA — they are NOT noindex'd. Bot UAs
@@ -426,6 +450,24 @@ https:// {
 	}
 	handle @share_bots {
 		reverse_proxy {$TELA_UPSTREAM_BACKEND:backend:8080}
+	}
+
+	# Shareable file pages shared from this org's white-label domain (mirror of the
+	# canonical block; backend brands the card via the request host). Block-scoped
+	# noindex already applies.
+	@file_og path /f/*/og.png
+	handle @file_og {
+		reverse_proxy {$TELA_UPSTREAM_BACKEND:backend:8080}
+	}
+	@file_bots {
+		path /f/*
+		header_regexp User-Agent "(?i)(slackbot-linkexpanding|twitterbot|facebookexternalhit|facebookcatalog|discordbot|telegrambot|linkedinbot|whatsapp|mastodon|cardyb|slack-imgproxy|pinterest|skypeuripreview|embedly|iframely|bot/|bot\s)"
+	}
+	handle @file_bots {
+		reverse_proxy {$TELA_UPSTREAM_BACKEND:backend:8080}
+	}
+	handle /f/* {
+		reverse_proxy {$TELA_UPSTREAM_FRONTEND:frontend:80}
 	}
 
 	# App needs these; all under the block-scoped noindex above.

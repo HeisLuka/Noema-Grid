@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
 )
 
 func ogGet(t *testing.T, base, path string) (*http.Response, []byte) {
@@ -100,5 +103,32 @@ func TestSpaceOG(t *testing.T) {
 	// Missing space → HTML 404.
 	if resp404, _ := ogGet(t, ts.URL, "/spaces/99999"); resp404.StatusCode != http.StatusNotFound {
 		t.Fatalf("missing space: status=%d want 404", resp404.StatusCode)
+	}
+}
+
+// A card title with no spaces — a filename, a URL — used to hit the "one word
+// longer than the line" path and get truncated at the first line, so the file
+// card showed "attachment-sharing-spec…" and never the extension. It must break
+// at punctuation instead, keeping every character.
+func TestWrapLines_BreaksAtPunctuationInsteadOfTruncating(t *testing.T) {
+	face, err := opentype.NewFace(ogBoldFont, &opentype.FaceOptions{
+		Size: ogTitleSize, DPI: 72, Hinting: font.HintingFull,
+	})
+	if err != nil {
+		t.Fatalf("title face: %v", err)
+	}
+	defer face.Close()
+
+	const name = "attachment-sharing-spec.pdf"
+	lines := wrapLines(face, name, ogDrawableWidth, 2)
+	if len(lines) < 2 {
+		t.Fatalf("expected the filename to wrap, got %q", lines)
+	}
+	if joined := strings.Join(lines, ""); joined != name {
+		t.Errorf("wrapped text = %q, want the filename intact", joined)
+	}
+	// Ordinary prose is untouched: it still wraps on spaces.
+	if got := wrapLines(face, "Hello", ogDrawableWidth, 2); len(got) != 1 || got[0] != "Hello" {
+		t.Errorf("short title = %q, want one unchanged line", got)
 	}
 }

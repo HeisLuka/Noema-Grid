@@ -279,6 +279,9 @@ func registerRoutes(srv *Server, mux *http.ServeMux) {
 	// /api/ routes). See public_spaces.go + docs/public-spaces.md.
 	// Cross-tenant public-space directory (the publishing "network"); self-
 	// authenticates by listing only visibility='public' spaces. See public_discover.go.
+	// File metadata for the shareable file page (/f/{hash}) — name, type, size
+	// and the blob URL. See file_page.go.
+	mux.HandleFunc("GET /api/public/files/{hash}", srv.GetPublicFile)
 	mux.HandleFunc("GET /api/public/discover", srv.GetPublicDiscover)
 	mux.HandleFunc("GET /api/public/spaces/{id}", srv.GetPublicSpace)
 	mux.HandleFunc("GET /api/public/spaces/{id}/tree", srv.GetPublicSpaceTree)
@@ -647,6 +650,15 @@ func registerRoutes(srv *Server, mux *http.ServeMux) {
 	// (incl. share/public readers). MUST be on auth.IsPublicPath via the
 	// /api/files/ HasPrefix branch. Non-image types are forced to download.
 	mux.HandleFunc("GET /api/files/{space_id}/{file}", srv.ServeSpaceFile)
+
+	// Shareable file page (/f/{hash}/{name}, file_page.go). Bot-gated like
+	// /share: crawler UAs get the file card here, humans fall through to the SPA
+	// route of the same path. og.png is registered before the {name} pattern so
+	// the literal wins regardless of mux iteration order. MUST be on
+	// auth.IsPublicPath.
+	mux.HandleFunc("GET /f/{hash}", srv.HandleFilePage)
+	mux.HandleFunc("GET /f/{hash}/og.png", srv.HandleFileOGImage)
+	mux.HandleFunc("GET /f/{hash}/{name}", srv.HandleFilePage)
 
 	// M11.0 OG share: public unauthenticated route. Crawler UAs get OG HTML;
 	// real browsers get 302'd to the SPA. MUST be on auth.IsPublicPath.
