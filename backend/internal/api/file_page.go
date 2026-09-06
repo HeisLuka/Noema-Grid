@@ -62,10 +62,19 @@ func (f sharedFile) short() string {
 // pagePath is the canonical shareable path. The name is decorative — the hash
 // prefix resolves the file — so a re-uploaded/renamed copy never breaks a link
 // that is already out in the world.
-func (f sharedFile) pagePath() string {
-	p := "/f/" + f.short()
-	if f.name != "" {
-		p += "/" + url.PathEscape(f.name)
+func (f sharedFile) pagePath() string { return fileSharePath(f.hash, f.name) }
+
+// fileSharePath builds /f/{hash12}/{name} from a full content hash. The ONE
+// definition of the shareable path: attachment payloads (REST + MCP) carry it
+// server-computed, so no client re-derives it — the same rule public_path
+// follows for pages.
+func fileSharePath(hash, name string) string {
+	if len(hash) > fileHashShortLen {
+		hash = hash[:fileHashShortLen]
+	}
+	p := "/f/" + hash
+	if name != "" {
+		p += "/" + url.PathEscape(name)
 	}
 	return p
 }

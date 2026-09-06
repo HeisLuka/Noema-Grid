@@ -38,6 +38,7 @@ func TestMCP_AttachmentTools(t *testing.T) {
 			Mime     string `json:"mime"`
 			URL      string `json:"url"`
 			Markdown string `json:"markdown"`
+			ShareURL string `json:"share_url"`
 		} `json:"attachment"`
 	}
 	mcpCallJSON(t, ctx, sess, "upload_attachment", map[string]any{
@@ -53,6 +54,14 @@ func TestMCP_AttachmentTools(t *testing.T) {
 	}
 	if !strings.HasPrefix(up.Attachment.URL, "/api/files/") {
 		t.Errorf("url = %q, want /api/files/…", up.Attachment.URL)
+	}
+	// share_url is the link an agent hands a person: absolute, the file PAGE
+	// (which previews + unfurls), never the blob.
+	if !strings.Contains(up.Attachment.ShareURL, "/f/") || !strings.HasSuffix(up.Attachment.ShareURL, "/pixel.png") {
+		t.Errorf("share_url = %q, want an absolute /f/{hash}/pixel.png", up.Attachment.ShareURL)
+	}
+	if strings.Contains(up.Attachment.ShareURL, "/api/files/") {
+		t.Errorf("share_url must not be the blob URL: %q", up.Attachment.ShareURL)
 	}
 
 	// list_attachments shows it.

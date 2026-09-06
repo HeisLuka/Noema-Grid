@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Check, Download, FileText, Link2, Paperclip, Trash2, CornerLeftUp } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { isPdf, PdfPreviewDialog } from '../ui/pdf-viewer'
-import { fileShareUrl } from '../../lib/file-link'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
   attachmentKeys,
@@ -152,10 +151,11 @@ function AttachmentChip({
   const [copied, setCopied] = useState(false)
   const summary = a.summary?.trim()
   // Copy the FILE PAGE link, not the blob URL: /api/files/… downloads on click
-  // and unfurls as nothing wherever it's pasted. See lib/file-link.ts.
+  // and unfurls as nothing wherever it's pasted. The path is server-computed
+  // (share_path) so a custom domain shares as itself.
   const copyLink = async () => {
     if (!navigator.clipboard?.writeText) return
-    await navigator.clipboard.writeText(fileShareUrl(a.hash, a.name))
+    await navigator.clipboard.writeText(window.location.origin + a.share_path)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

@@ -454,16 +454,18 @@ func parseLines(s string, max int) []string {
 	return out
 }
 
-// enrichFileCitations fills download_url on file-source hits — the rag layer
-// carries the file's space + name + hash but can't build an /api URL without
-// importing api, so the citation URL is composed here (same shape as
-// list_attachments). Page hits are untouched.
+// enrichFileCitations fills download_url + share_url on file-source hits — the
+// rag layer carries the file's space + name + hash but can't build a tela URL
+// without importing api, so the citation URLs are composed here (same shapes as
+// list_attachments). download_url fetches the bytes; share_url is the file page,
+// the one to put in an answer a person reads. Page hits are untouched.
 func enrichFileCitations(hits []rag.Hit) {
 	base := canonicalBaseURL()
 	for i := range hits {
 		h := &hits[i]
 		if h.SourceKind == "file" && h.FileName != "" && h.Hash != "" {
 			h.DownloadURL = base + spaceFileServeURL(h.SpaceID, h.FileName, h.Hash)
+			h.ShareURL = base + fileSharePath(h.Hash, h.FileName)
 		}
 	}
 }
@@ -472,6 +474,7 @@ func enrichFileCitations(hits []rag.Hit) {
 func enrichFileChunk(c *rag.ChunkRead) {
 	if c != nil && c.SourceKind == "file" && c.FileName != "" && c.Hash != "" {
 		c.DownloadURL = canonicalBaseURL() + spaceFileServeURL(c.SpaceID, c.FileName, c.Hash)
+		c.ShareURL = canonicalBaseURL() + fileSharePath(c.Hash, c.FileName)
 	}
 }
 

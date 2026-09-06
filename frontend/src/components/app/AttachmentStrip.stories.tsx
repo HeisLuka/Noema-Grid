@@ -28,6 +28,7 @@ function file(
     byte_size,
     hash: `${id}`.repeat(8),
     url: '#',
+    share_path: `/f/${`${id}`.repeat(12)}/${name}`,
     embedded,
     summary,
   }

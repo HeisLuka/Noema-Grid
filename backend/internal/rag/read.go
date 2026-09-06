@@ -17,7 +17,8 @@ var ErrChunkNotFound = errors.New("chunk not found")
 // content — the chunk-granularity read between snippet and whole-page get_page.
 // For a file chunk (SourceKind "file") Title is the file name, FileID/FileName/
 // Hash identify the attachment, PageID is its PARENT page (0 = root), and
-// DownloadURL is filled by the API layer (see enrichFileChunk).
+// DownloadURL / ShareURL are filled by the API layer (see enrichFileChunk) —
+// bytes to fetch, and the file page to show a person.
 type ChunkRead struct {
 	ChunkID     int64  `json:"chunk_id"`
 	SourceKind  string `json:"source_kind"` // "page" | "file"
@@ -32,7 +33,8 @@ type ChunkRead struct {
 	FileID      int64  `json:"file_id,omitempty"`
 	FileName    string `json:"file_name,omitempty"`
 	DownloadURL string `json:"download_url,omitempty"`
-	Hash        string `json:"-"` // carrier for the API layer's download_url build
+	ShareURL    string `json:"share_url,omitempty"`
+	Hash        string `json:"-"` // carrier for the API layer's URL builds
 }
 
 // ReadChunk returns one chunk's full content, authorized through the LIVE source

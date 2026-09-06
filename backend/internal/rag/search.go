@@ -15,9 +15,10 @@ import (
 //
 // A chunk's source is a page OR a file (SourceKind). For a file hit, Title is the
 // file name, FileID/FileName/Hash identify the attachment, and PageID is its
-// PARENT page (0 = space root). DownloadURL is left empty here and filled by the
-// API layer (rag can't build /api URLs without importing api) — see
-// enrichFileCitations.
+// PARENT page (0 = space root). DownloadURL and ShareURL are left empty here and
+// filled by the API layer (rag can't build tela URLs without importing api) —
+// see enrichFileCitations. DownloadURL fetches the bytes; ShareURL is the file
+// page to show a person.
 type Hit struct {
 	ChunkID     int64   `json:"chunk_id"`
 	SourceKind  string  `json:"source_kind"` // "page" | "file"
@@ -33,7 +34,8 @@ type Hit struct {
 	FileID      int64  `json:"file_id,omitempty"`
 	FileName    string `json:"file_name,omitempty"`
 	DownloadURL string `json:"download_url,omitempty"`
-	Hash        string `json:"-"` // carrier for the API layer's download_url build
+	ShareURL    string `json:"share_url,omitempty"`
+	Hash        string `json:"-"` // carrier for the API layer's URL builds
 }
 
 // fileChunkIDBase is file_chunks.id's identity floor (2^40, see migration 0036):

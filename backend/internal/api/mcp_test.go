@@ -877,6 +877,10 @@ func TestMCP_ResearchFiles(t *testing.T) {
 	if fileHit.DownloadURL == "" {
 		t.Errorf("file hit missing download_url")
 	}
+	// …and the previewable link to put in front of a person.
+	if !strings.Contains(fileHit.ShareURL, "/f/") {
+		t.Errorf("file hit share_url = %q, want a /f/… file page link", fileHit.ShareURL)
+	}
 
 	var rout readChunkOut
 	mcpCallJSON(t, ctx, sess, "read_chunk", map[string]any{"chunk_id": fileHit.ChunkID}, &rout)
@@ -885,6 +889,9 @@ func TestMCP_ResearchFiles(t *testing.T) {
 	}
 	if rout.Chunk.DownloadURL == "" {
 		t.Errorf("read_chunk file result missing download_url")
+	}
+	if !strings.Contains(rout.Chunk.ShareURL, "/f/") {
+		t.Errorf("read_chunk file result share_url = %q, want a /f/… link", rout.Chunk.ShareURL)
 	}
 }
 

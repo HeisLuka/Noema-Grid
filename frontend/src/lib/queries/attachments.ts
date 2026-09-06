@@ -12,8 +12,14 @@ export interface Attachment {
   mime: string
   byte_size: number
   hash: string
-  /** Stable, rename-proof serve URL (content-addressed). */
+  /** Stable, rename-proof serve URL (content-addressed) — the blob, for the body. */
   url: string
+  /**
+   * The file page (`/f/{hash}/{name}`) — the link to give a PERSON: it previews
+   * the file and unfurls as a card, where `url` downloads and unfurls as
+   * nothing. Server-computed; never re-derive it client-side.
+   */
+  share_path: string
   /** The page body already references this file's hash (it's embedded inline). */
   embedded: boolean
   /**

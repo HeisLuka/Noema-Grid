@@ -207,9 +207,9 @@ func (s *Server) UploadAttachmentBytes(w http.ResponseWriter, r *http.Request) {
 
 	a := attachmentOut{
 		ID: sf.id, Name: sf.name, Mime: sf.mime, ByteSize: sf.size, Hash: sf.hash,
-		URL:      spaceFileServeURL(page.SpaceID, sf.name, sf.hash),
 		Embedded: strings.Contains(page.Body, sf.hash),
 	}
+	a.fillLinks(page.SpaceID)
 	writeJSON(w, http.StatusOK, map[string]any{"attachment": newMCPAttachment(a)})
 }
 
@@ -252,7 +252,7 @@ func (s *Server) confirmAttachmentUploadCore(ctx context.Context, u *auth.User, 
 	if err != nil {
 		return attachmentOut{}, &apiErr{http.StatusInternalServerError, "internal", "load file failed"}
 	}
-	a.URL = spaceFileServeURL(page.SpaceID, a.Name, a.Hash)
+	a.fillLinks(page.SpaceID)
 	a.Embedded = strings.Contains(page.Body, a.Hash)
 	_, _ = s.DB.ExecContext(ctx, `UPDATE attachment_uploads SET confirmed_at = tela_now() WHERE upload_id = $1`, uploadID)
 	return a, nil

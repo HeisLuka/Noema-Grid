@@ -23,7 +23,9 @@ of the markdown.
 ## API
 
 - `GET  /api/pages/{id}/attachments` — session-authed; lists the page's files
-  with `{id, name, mime, byte_size, hash, url, embedded}`.
+  with `{id, name, mime, byte_size, hash, url, share_path, embedded}`. `url` is
+  the blob (what a body embeds); `share_path` is the file page (what a person
+  gets) — server-computed by `fillLinks`, so no client re-derives it.
 - `POST /api/pages/{id}/attachments` — editor+; multipart `file`. Dedupes
   identical bytes; disambiguates a name collision with a `-<hash8>` suffix so a
   distinct upload never clobbers an existing one (e.g. two pasted `image.png`).
@@ -78,7 +80,12 @@ Agents get the same surface (put an image/PDF on a page, or read what's
 attached):
 
 - `list_attachments(page_id)` — read; each file plus an absolute `download_url`
-  (fetchable over HTTP) and a ready-to-paste `markdown` embed snippet.
+  (fetchable over HTTP), a `share_url` (the file page — the ONLY one to hand a
+  person; the blob downloads on click and unfurls as nothing), and a
+  ready-to-paste `markdown` embed snippet. `upload_attachment` /
+  `confirm_attachment_upload` return the same three, and a `research` / `read_chunk`
+  hit on a FILE source carries `download_url` + `share_url` too — that is how an
+  agent answers "send me the PDF" with a link that previews.
 - `upload_attachment(page_id, name, data_base64)` — editor+; stores the bytes
   (inline base64) and returns the attachment + `markdown`. The agent then
   `update_page`/`patch_page`s the snippet into the body — `![](…)` for images, a

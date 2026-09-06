@@ -75,6 +75,12 @@ func TestAttachments_ListAndEmbeddedFlag(t *testing.T) {
 	if byName["report.pdf"].URL != wantURL {
 		t.Errorf("report.pdf url = %q, want %q", byName["report.pdf"].URL, wantURL)
 	}
+	// The share path travels with every attachment payload so no client derives
+	// it (the frontend's Copy link just prefixes its own origin).
+	wantShare := "/f/" + hPdf[:fileHashShortLen] + "/report.pdf"
+	if byName["report.pdf"].SharePath != wantShare {
+		t.Errorf("report.pdf share_path = %q, want %q", byName["report.pdf"].SharePath, wantShare)
+	}
 }
 
 func TestAttachments_ServeInlineVsDownload(t *testing.T) {

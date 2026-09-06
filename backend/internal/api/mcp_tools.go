@@ -91,7 +91,7 @@ func (s *Server) registerMCPTools(server *mcp.Server) {
 		Name:  "research",
 		Title: "Research the wiki",
 		Description: "Answer a question — or gather everything relevant on a topic — from the wiki by MEANING. One call assembles answer-ready grounding: the full bodies of the pages that matter (not isolated fragments), pulled from pages AND attached files (PDFs, docs), plus any flagged disagreements among the sources and a low_confidence signal. " +
-			"Returns `context` (a numbered [n] excerpt block to ground your answer), `sources` (the cited hits aligned to [n], each with page_id/chunk_id for drill-in and a download_url for file sources), `disagreements` (conflicts to surface, [n]-keyed), and `low_confidence`. " +
+			"Returns `context` (a numbered [n] excerpt block to ground your answer), `sources` (the cited hits aligned to [n], each with page_id/chunk_id for drill-in and, for file sources, a download_url for the bytes plus a share_url to show the person), `disagreements` (conflicts to surface, [n]-keyed), and `low_confidence`. " +
 			"YOU write the answer from `context` and cite sources by their [n]. To read one section deeper use `read_chunk` (chunk_id from a source) or `get_page` (full page). For exact-name/term lookup use `search`. Requires a configured embedder (503 otherwise).",
 		Annotations: readOnly,
 	}, s.mcpResearch)
@@ -99,7 +99,7 @@ func (s *Server) registerMCPTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "read_chunk",
 		Title:       "Read chunk",
-		Description: "Fetch one chunk's full section text by chunk_id (from a `research` source), for a page OR a file chunk (read-only). Middle granularity — use it to expand a single cited section; for the whole page use get_page. A file chunk cites its file (file_name + parent page_id + download_url).",
+		Description: "Fetch one chunk's full section text by chunk_id (from a `research` source), for a page OR a file chunk (read-only). Middle granularity — use it to expand a single cited section; for the whole page use get_page. A file chunk cites its file (file_name + parent page_id + download_url for the bytes + share_url, the previewable link to show a person).",
 		Annotations: readOnly,
 	}, s.mcpReadChunk)
 
@@ -326,14 +326,14 @@ func (s *Server) registerMCPTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_attachments",
 		Title:       "List attachments",
-		Description: "List the files attached to a page (uploads AND rclone-synced files): name, mime, byte size, a stable serve URL, an absolute download_url, and a ready-to-embed `markdown` snippet. `embedded` tells you the page body already references the file.",
+		Description: "List the files attached to a page (uploads AND rclone-synced files): name, mime, byte size, a stable serve URL, an absolute download_url (fetch the bytes), a `share_url` (give THIS to a person — it opens a page that previews the file and unfurls as a card in chat, where download_url just downloads), and a ready-to-embed `markdown` snippet. `embedded` tells you the page body already references the file.",
 		Annotations: readOnly,
 	}, s.mcpListAttachments)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "upload_attachment",
 		Title:       "Upload attachment",
-		Description: "Upload a file (base64) and attach it to a page (editor+) — an image, PDF, dataset, etc. Returns the serve URL plus a ready-to-paste `markdown` snippet; then call update_page or patch_page to place it in the body (images render inline as ![](…), other files as a download card). The payload is inline base64 and rides through the model's context, so it is capped at 5 MB — keep it to small files (screenshots, charts, short PDFs). For larger files use request_attachment_upload (a direct PUT URL, bytes off-context), or the tela editor (drag-drop).",
+		Description: "Upload a file (base64) and attach it to a page (editor+) — an image, PDF, dataset, etc. Returns the serve URL plus a ready-to-paste `markdown` snippet; then call update_page or patch_page to place it in the body (images render inline as ![](…), other files as a download card). It also returns `share_url` — the link to give a PERSON who asks for the file, since it previews it and unfurls as a card, unlike the raw download_url. The payload is inline base64 and rides through the model's context, so it is capped at 5 MB — keep it to small files (screenshots, charts, short PDFs). For larger files use request_attachment_upload (a direct PUT URL, bytes off-context), or the tela editor (drag-drop).",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: &no, DestructiveHint: &no, OpenWorldHint: &no},
 	}, s.mcpUploadAttachment)
 
@@ -361,7 +361,7 @@ func (s *Server) registerMCPTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "request_attachment_upload",
 		Title:       "Request a direct upload URL",
-		Description: "Get a short-lived signed PUT URL to upload a file WITHOUT sending its bytes through the model context — for files over upload_attachment's 5 MB inline cap, or to avoid context bloat. Flow: call this → the host PUTs the raw bytes to the returned `put_url` over HTTP → then either read that PUT response or call confirm_attachment_upload to get the embed snippet, and place it with update_page/patch_page. Editor+. Only works on hosts that can make an outbound HTTP PUT; otherwise use upload_attachment.",
+		Description: "Get a short-lived signed PUT URL to upload a file WITHOUT sending its bytes through the model context — for files over upload_attachment's 5 MB inline cap, or to avoid context bloat. Flow: call this → the host PUTs the raw bytes to the returned `put_url` over HTTP → then either read that PUT response or call confirm_attachment_upload to get the embed snippet (and `share_url`, the link for a person), and place it with update_page/patch_page. Editor+. Only works on hosts that can make an outbound HTTP PUT; otherwise use upload_attachment.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: &no, DestructiveHint: &no, OpenWorldHint: &no},
 	}, s.mcpRequestAttachmentUpload)
 
@@ -1479,12 +1479,19 @@ func (s *Server) mcpSubmitFeedback(ctx context.Context, req *mcp.CallToolRequest
 
 // ---- attachments (list_attachments / upload_attachment / delete_attachment) ----
 
-// mcpAttachment is an attachmentOut plus two agent conveniences: an absolute
+// mcpAttachment is an attachmentOut plus three agent conveniences: an absolute
 // download_url (the embedded `url` is relative, for the body; this one is
-// fetchable over HTTP directly) and a ready-to-paste `markdown` embed snippet.
+// fetchable over HTTP directly), an absolute share_url — the file PAGE, which is
+// what to hand a person — and a ready-to-paste `markdown` embed snippet.
+//
+// The three are not interchangeable and the difference is the whole point:
+// `url` goes in a page body, `download_url` is for the agent to fetch bytes, and
+// `share_url` is the only one a human should ever be given (the blob downloads
+// on click and unfurls as nothing; the file page previews it and makes a card).
 type mcpAttachment struct {
 	attachmentOut
 	DownloadURL string `json:"download_url"`
+	ShareURL    string `json:"share_url"`
 	Markdown    string `json:"markdown"`
 }
 
@@ -1492,6 +1499,7 @@ func newMCPAttachment(a attachmentOut) mcpAttachment {
 	return mcpAttachment{
 		attachmentOut: a,
 		DownloadURL:   canonicalBaseURL() + a.URL,
+		ShareURL:      canonicalBaseURL() + a.SharePath,
 		Markdown:      attachmentEmbedMarkdown(a),
 	}
 }

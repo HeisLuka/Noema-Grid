@@ -4,7 +4,6 @@ import { Check, Download, ExternalLink, FileText, Link2, Loader2 } from 'lucide-
 import { usePublicFile } from '../lib/queries/public'
 import { PublicShell, PublicUnavailable } from '../components/app/PublicShell'
 import { Button } from '../components/ui/button'
-import { fileShareUrl } from '../lib/file-link'
 
 // The file page — /f/{hash}/{name}. The link you share for an attachment
 // instead of the raw /api/files blob, which forces a download and unfurls as
@@ -46,7 +45,7 @@ export function FileRoute() {
   const isPdf = file.mime === 'application/pdf'
   const copy = async () => {
     if (!navigator.clipboard?.writeText) return
-    await navigator.clipboard.writeText(fileShareUrl(file.hash, file.name))
+    await navigator.clipboard.writeText(window.location.origin + file.path)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

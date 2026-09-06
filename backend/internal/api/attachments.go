@@ -51,8 +51,20 @@ type attachmentOut struct {
 	ByteSize int64  `json:"byte_size"`
 	Hash     string `json:"hash"`
 	URL      string `json:"url"`
-	Embedded bool   `json:"embedded"`          // body already references this file's hash
-	Summary  string `json:"summary,omitempty"` // machine-generated, "" until the worker runs (or non-text)
+	// SharePath is the file page (/f/{hash12}/{name}) — the link to give a
+	// PERSON, as opposed to URL, which is the blob a page body embeds. Relative
+	// so a client prefixes its own origin (a custom domain shares as itself).
+	SharePath string `json:"share_path"`
+	Embedded  bool   `json:"embedded"`          // body already references this file's hash
+	Summary   string `json:"summary,omitempty"` // machine-generated, "" until the worker runs (or non-text)
+}
+
+// fillLinks sets the two URLs an attachment carries: the blob a page body embeds
+// (URL) and the file page a person opens (SharePath). One definition, called by
+// every construction site, so the pair can never half-populate.
+func (a *attachmentOut) fillLinks(spaceID int64) {
+	a.URL = spaceFileServeURL(spaceID, a.Name, a.Hash)
+	a.SharePath = fileSharePath(a.Hash, a.Name)
 }
 
 // spaceFileServeURL is the stable, rename-proof URL for a stored file: keyed by
@@ -98,7 +110,7 @@ func (s *Server) listPageAttachmentsCore(ctx context.Context, u *auth.User, k *a
 		if err := rows.Scan(&a.ID, &a.Name, &a.Mime, &a.ByteSize, &a.Hash, &a.Summary); err != nil {
 			return nil, &apiErr{http.StatusInternalServerError, "internal", "scan attachment failed"}
 		}
-		a.URL = spaceFileServeURL(page.SpaceID, a.Name, a.Hash)
+		a.fillLinks(page.SpaceID)
 		a.Embedded = strings.Contains(page.Body, a.Hash)
 		out = append(out, a)
 	}
@@ -141,11 +153,12 @@ func (s *Server) uploadPageAttachmentCore(ctx context.Context, u *auth.User, k *
 	if err != nil {
 		return attachmentOut{}, &apiErr{http.StatusInternalServerError, "internal", "store attachment failed"}
 	}
-	return attachmentOut{
+	out := attachmentOut{
 		ID: sf.id, Name: sf.name, Mime: sf.mime, ByteSize: sf.size, Hash: sf.hash,
-		URL:      spaceFileServeURL(page.SpaceID, sf.name, sf.hash),
 		Embedded: strings.Contains(page.Body, sf.hash),
-	}, nil
+	}
+	out.fillLinks(page.SpaceID)
+	return out, nil
 }
 
 // deletePageAttachmentCore soft-deletes a space_file parented to the page (editor+).
