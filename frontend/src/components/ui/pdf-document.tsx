@@ -13,10 +13,19 @@ import 'react-pdf/dist/Page/AnnotationLayer.css'
 
 // Worker is bundled as an asset by Vite via import.meta.url, so it stays
 // version-locked to the installed pdfjs-dist.
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString()
+//
+// The `?v=2` busts POISONED CLIENT CACHES. Until the nginx fix, this .mjs was
+// served as application/octet-stream (nginx's mime.types has no .mjs) and the
+// browser refused it as a module script, so the viewer failed with "Couldn't
+// display this PDF". Two things make that stick: /assets/ is
+// `immutable, max-age=1y` and the filename hash only moves when pdfjs-dist
+// does, AND a hard reload does not reliably refetch a script a worker pulls in
+// later — so an affected browser keeps the broken copy for a YEAR and looks
+// unfixable from the user's side. A different query is a different cache key:
+// one clean refetch, everywhere, without touching the vendored file.
+pdfjs.GlobalWorkerOptions.workerSrc =
+  new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString() +
+  '?v=2'
 
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 3
