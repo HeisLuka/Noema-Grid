@@ -331,6 +331,13 @@ func (s *Server) registerMCPTools(server *mcp.Server) {
 	}, s.mcpListAttachments)
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_space_files",
+		Title:       "List a space's files",
+		Description: "List every file stored in a space, including the ones parented to the space ROOT rather than to a page — those are invisible to list_attachments (which is per-page), so this is the only way to discover a file that was synced or imported beside the page tree. Each entry carries the same links: `download_url` for the bytes, `share_url` to give a person, plus `parent_page_id`/`parent_title` (absent = the space root). Filter with parent_page_id: a page id for that page's files, \"root\" for the root only. Read-only; any space role. Capped at 500 files (`truncated` says so).",
+		Annotations: readOnly,
+	}, s.mcpListSpaceFiles)
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "upload_attachment",
 		Title:       "Upload attachment",
 		Description: "Upload a file (base64) and attach it to a page (editor+) — an image, PDF, dataset, etc. Returns the serve URL plus a ready-to-paste `markdown` snippet; then call update_page or patch_page to place it in the body (images render inline as ![](…), other files as a download card). It also returns `share_url` — the link to give a PERSON who asks for the file, since it previews it and unfurls as a card, unlike the raw download_url. The payload is inline base64 and rides through the model's context, so it is capped at 5 MB — keep it to small files (screenshots, charts, short PDFs). For larger files use request_attachment_upload (a direct PUT URL, bytes off-context), or the tela editor (drag-drop).",
@@ -1532,6 +1539,58 @@ func decodeMCPBase64(s string) ([]byte, error) {
 		}
 	}
 	return base64.StdEncoding.DecodeString(s)
+}
+
+type listSpaceFilesIn struct {
+	SpaceID      int64  `json:"space_id" jsonschema:"space whose files to list"`
+	ParentPageID string `json:"parent_page_id,omitempty" jsonschema:"optional filter: a page id for that page's files, or \"root\" for files parented to the space root; omit for every file in the space"`
+}
+
+type listSpaceFilesOut struct {
+	Files     []mcpSpaceFile `json:"files"`
+	Truncated bool           `json:"truncated,omitempty"` // more than the cap; narrow with parent_page_id
+}
+
+// mcpSpaceFile is a spaceFileOut with the agent link conveniences, same as
+// mcpAttachment (which it embeds through the shared attachmentOut).
+type mcpSpaceFile struct {
+	spaceFileOut
+	DownloadURL string `json:"download_url"`
+	ShareURL    string `json:"share_url"`
+	Markdown    string `json:"markdown"`
+}
+
+func (s *Server) mcpListSpaceFiles(ctx context.Context, req *mcp.CallToolRequest, in listSpaceFilesIn) (*mcp.CallToolResult, listSpaceFilesOut, error) {
+	u, k := mcpIdentity(req)
+	if u == nil {
+		return mcpUnauthErr(), listSpaceFilesOut{}, nil
+	}
+	var parent int64
+	switch p := strings.TrimSpace(in.ParentPageID); p {
+	case "":
+	case "root":
+		parent = -1
+	default:
+		n, err := strconv.ParseInt(p, 10, 64)
+		if err != nil || n <= 0 {
+			return mcpErr(&apiErr{400, "bad_request", `parent_page_id must be a page id or "root"`}), listSpaceFilesOut{}, nil
+		}
+		parent = n
+	}
+	files, truncated, ae := s.listSpaceFilesCore(ctx, u, k, in.SpaceID, parent)
+	if ae != nil {
+		return mcpErr(ae), listSpaceFilesOut{}, nil
+	}
+	out := listSpaceFilesOut{Files: make([]mcpSpaceFile, len(files)), Truncated: truncated}
+	for i, f := range files {
+		out.Files[i] = mcpSpaceFile{
+			spaceFileOut: f,
+			DownloadURL:  canonicalBaseURL() + f.URL,
+			ShareURL:     canonicalBaseURL() + f.SharePath,
+			Markdown:     attachmentEmbedMarkdown(f.attachmentOut),
+		}
+	}
+	return nil, out, nil
 }
 
 type listAttachmentsIn struct {

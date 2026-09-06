@@ -236,6 +236,10 @@ func registerRoutes(srv *Server, mux *http.ServeMux) {
 	// rclone-synced into its folder). Session-authed read; the bytes are served
 	// by the public /api/files/ route below.
 	mux.HandleFunc("GET /api/pages/{id}/attachments", srv.ListPageAttachments)
+	// Space-scope listing — the same files plus the ones parented to the space
+	// ROOT, which no per-page listing can reach (a sync/import drops them beside
+	// the tree). ?parent_page_id=<id>|root narrows it.
+	mux.HandleFunc("GET /api/spaces/{id}/files", srv.ListSpaceFiles)
 	mux.HandleFunc("POST /api/pages/{id}/attachments", srv.UploadPageAttachment)
 	mux.HandleFunc("DELETE /api/pages/{id}/attachments/{file_id}", srv.DeletePageAttachment)
 

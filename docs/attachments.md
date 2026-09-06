@@ -30,6 +30,12 @@ of the markdown.
   identical bytes; disambiguates a name collision with a `-<hash8>` suffix so a
   distinct upload never clobbers an existing one (e.g. two pasted `image.png`).
 - `DELETE /api/pages/{id}/attachments/{file_id}` — editor+; soft-delete.
+- `GET  /api/spaces/{id}/files` — session-authed; every live file in the space,
+  page-parented **and** root-level, each with `parent_page_id`/`parent_title`
+  (absent = root). `?parent_page_id={id}|root` filters. Capped at 500 with a
+  `truncated` flag. This is the only listing that reaches a file parented to the
+  space ROOT — where a sync or import drops files beside the page tree, and
+  which the per-page listing cannot see by construction.
 - `GET /api/files/{space_id}/{hash}.{ext}` — **public**, content-addressed,
   immutable cache. Keyed by hash (not path) so a body embed survives a sync
   rename. Raster images (png/jpeg/gif/webp) serve **inline**; everything else is
@@ -79,6 +85,10 @@ missing from its allowlist renders perfectly while returning 404.
 Agents get the same surface (put an image/PDF on a page, or read what's
 attached):
 
+- `list_space_files(space_id, parent_page_id?)` — read; the space-scope listing
+  above. The tool an agent needs when someone asks for "that PDF" and it isn't
+  on a page — `list_attachments` is per-page, so a root-level file is otherwise
+  undiscoverable (linkable only if you already know its hash).
 - `list_attachments(page_id)` — read; each file plus an absolute `download_url`
   (fetchable over HTTP), a `share_url` (the file page — the ONLY one to hand a
   person; the blob downloads on click and unfurls as nothing), and a

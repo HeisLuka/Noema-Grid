@@ -120,6 +120,71 @@ func (s *Server) listPageAttachmentsCore(ctx context.Context, u *auth.User, k *a
 	return out, nil
 }
 
+// spaceFileOut is a file listed at SPACE scope: an attachmentOut plus where it
+// lives. A file's home is a page (parent_page_id) OR the space root — root files
+// come from a sync/import that dropped them beside the tree, and they were
+// reachable by NO listing before this: list_attachments is per-page, so a file
+// with no page could be linked once you knew its hash and otherwise not found.
+type spaceFileOut struct {
+	attachmentOut
+	ParentPageID int64  `json:"parent_page_id,omitempty"` // 0 = the space root
+	ParentTitle  string `json:"parent_title,omitempty"`
+}
+
+// spaceFilesCap bounds one listing. A space's files are a flat list with no
+// pagination; the cap keeps a pathological vault from blowing up a tool result,
+// and `truncated` tells the caller it happened rather than lying by omission.
+const spaceFilesCap = 500
+
+// listSpaceFilesCore lists every live file in a space — page-parented AND root —
+// with the same links list_attachments hands out. Any space role may read, same
+// as the per-page listing. parentPageID filters to one page's files; pass -1 for
+// the ROOT only, 0 for everything.
+func (s *Server) listSpaceFilesCore(ctx context.Context, u *auth.User, k *auth.APIKey, spaceID, parentPageID int64) ([]spaceFileOut, bool, *apiErr) {
+	if _, ae := s.membershipCore(ctx, u, k, spaceID); ae != nil {
+		return nil, false, ae
+	}
+	where, args := "", []any{spaceID, spaceFilesCap + 1}
+	switch {
+	case parentPageID < 0:
+		where = " AND f.parent_page_id IS NULL"
+	case parentPageID > 0:
+		where = " AND f.parent_page_id = $3"
+		args = append(args, parentPageID)
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT f.id, f.name, f.mime, f.byte_size, f.content_hash, COALESCE(f.summary, ''),
+		       COALESCE(f.parent_page_id, 0), COALESCE(p.title, '')
+		  FROM space_files f
+		  LEFT JOIN pages p ON p.id = f.parent_page_id AND p.deleted_at IS NULL
+		 WHERE f.space_id = $1 AND f.deleted_at IS NULL`+where+`
+		 ORDER BY COALESCE(f.parent_page_id, 0) ASC, f.name ASC, f.id ASC
+		 LIMIT $2`, args...)
+	if err != nil {
+		return nil, false, &apiErr{http.StatusInternalServerError, "internal", "list space files failed"}
+	}
+	defer rows.Close()
+	out := []spaceFileOut{}
+	for rows.Next() {
+		var f spaceFileOut
+		if err := rows.Scan(&f.ID, &f.Name, &f.Mime, &f.ByteSize, &f.Hash, &f.Summary,
+			&f.ParentPageID, &f.ParentTitle); err != nil {
+			return nil, false, &apiErr{http.StatusInternalServerError, "internal", "scan space file failed"}
+		}
+		f.fillLinks(spaceID)
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, &apiErr{http.StatusInternalServerError, "internal", "list space files failed"}
+	}
+	// Embedded is a per-PAGE fact (does that body reference the hash) and this
+	// listing spans pages, so it stays false here — ask list_attachments for it.
+	if len(out) > spaceFilesCap {
+		return out[:spaceFilesCap], true, nil
+	}
+	return out, false, nil
+}
+
 // uploadPageAttachmentCore stores data as a space_file parented to the page and
 // returns its metadata + serve URL (editor+). The unified path for BOTH inline
 // images and other attachments. Callers pass the already-read bytes (the REST
@@ -192,6 +257,40 @@ func (s *Server) deletePageAttachmentCore(ctx context.Context, u *auth.User, k *
 }
 
 // ListPageAttachments handles GET /api/pages/{id}/attachments.
+// ListSpaceFiles handles GET /api/spaces/{id}/files — every file in the space,
+// including the root-level ones no page lists. ?parent_page_id=<id> narrows to
+// one page, ?parent_page_id=root to the space root.
+func (s *Server) ListSpaceFiles(w http.ResponseWriter, r *http.Request) {
+	spaceID, ok := parseIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+	u, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	var parent int64
+	switch q := r.URL.Query().Get("parent_page_id"); q {
+	case "":
+	case "root":
+		parent = -1
+	default:
+		n, err := strconv.ParseInt(q, 10, 64)
+		if err != nil || n <= 0 {
+			writeError(w, http.StatusBadRequest, "bad_request", "parent_page_id must be a page id or \"root\"")
+			return
+		}
+		parent = n
+	}
+	k, _ := auth.APIKeyFromContext(r.Context())
+	files, truncated, ae := s.listSpaceFilesCore(r.Context(), u, k, spaceID, parent)
+	if ae != nil {
+		writeError(w, ae.Status, ae.Code, ae.Message)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": files, "truncated": truncated})
+}
+
 func (s *Server) ListPageAttachments(w http.ResponseWriter, r *http.Request) {
 	pageID, ok := parseIDParam(w, r, "id")
 	if !ok {

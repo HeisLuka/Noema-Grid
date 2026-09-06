@@ -278,3 +278,83 @@ func TestAttachments_UploadDedupeAndCollision(t *testing.T) {
 		t.Fatalf("after delete: %d live files, want 1", countLiveFiles(t, d, spaceID))
 	}
 }
+
+// A file parented to the space ROOT (what a sync or import drops beside the page
+// tree) is reachable by NO per-page listing — list_space_files is the only way to
+// find it, which is the whole reason it exists.
+func TestListSpaceFiles_IncludesRootLevelFiles(t *testing.T) {
+	ts, d := newWiredServer(t)
+	uid := seedUser(t, d, "owner", "pw-owner-123", false)
+	seedUser(t, d, "outsider", "pw-outsider-123", false)
+	spaceID := seedSpace(t, d, "Engineering", "eng", uid)
+	pageID := seedPageInSpace(t, d, spaceID, nil, "Doc", "")
+	hPage := seedAttachment(t, d, spaceID, pageID, "report.pdf", "application/pdf", []byte("%PDF-1.4"))
+
+	// Root-level file: same table, no parent page.
+	hRoot := "aa" + hPage[2:]
+	if _, err := d.Exec(`
+		INSERT INTO space_files (space_id, parent_page_id, name, content_hash, mime, data, byte_size)
+		VALUES ($1, NULL, 'synced-cv.pdf', $2, 'application/pdf', $3, 8)`,
+		spaceID, hRoot, []byte("%PDF-1.4")); err != nil {
+		t.Fatalf("insert root file: %v", err)
+	}
+
+	client := loginClient(t, ts, "owner", "pw-owner-123")
+	get := func(q string) (int, []spaceFileOut) {
+		resp, err := client.Get(ts.URL + "/api/spaces/" + itoa(spaceID) + "/files" + q)
+		if err != nil {
+			t.Fatalf("GET files%s: %v", q, err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Files []spaceFileOut `json:"files"`
+		}
+		json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out.Files
+	}
+
+	code, files := get("")
+	if code != http.StatusOK || len(files) != 2 {
+		t.Fatalf("space listing: status=%d files=%d, want 200 / 2", code, len(files))
+	}
+	byName := map[string]spaceFileOut{}
+	for _, f := range files {
+		byName[f.Name] = f
+	}
+	root, page := byName["synced-cv.pdf"], byName["report.pdf"]
+	if root.ParentPageID != 0 || root.ParentTitle != "" {
+		t.Errorf("root file should report no parent: %+v", root)
+	}
+	if page.ParentPageID != pageID || page.ParentTitle != "Doc" {
+		t.Errorf("page file should name its parent: %+v", page)
+	}
+	// Both carry the links an agent hands out.
+	if root.SharePath != "/f/"+hRoot[:fileHashShortLen]+"/synced-cv.pdf" {
+		t.Errorf("root share_path = %q", root.SharePath)
+	}
+	if root.URL == "" {
+		t.Errorf("root file missing serve url")
+	}
+
+	// Filters.
+	if _, only := get("?parent_page_id=root"); len(only) != 1 || only[0].Name != "synced-cv.pdf" {
+		t.Errorf("?parent_page_id=root = %+v, want just the root file", only)
+	}
+	if _, only := get("?parent_page_id=" + itoa(pageID)); len(only) != 1 || only[0].Name != "report.pdf" {
+		t.Errorf("?parent_page_id=<page> = %+v, want just the page's file", only)
+	}
+	if code, _ := get("?parent_page_id=nope"); code != http.StatusBadRequest {
+		t.Errorf("bad parent_page_id status = %d, want 400", code)
+	}
+
+	// Non-members can't enumerate a space's files.
+	stranger := loginClient(t, ts, "outsider", "pw-outsider-123")
+	resp, err := stranger.Get(ts.URL + "/api/spaces/" + itoa(spaceID) + "/files")
+	if err != nil {
+		t.Fatalf("outsider GET: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("outsider status = %d, want 403", resp.StatusCode)
+	}
+}
