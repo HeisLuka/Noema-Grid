@@ -38,7 +38,12 @@ func TestSealOpenRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seal: %v", err)
 		}
-		if strings.Contains(sealed, pt) {
+		// The leak check only means anything for a plaintext long enough that a
+		// chance appearance is negligible: "a" turns up inside ~40 chars of
+		// random base64 about half the time, which made this test fail on
+		// roughly every other CI run. The short and multi-byte cases are here
+		// for the round trip, which is asserted below for all of them.
+		if len(pt) >= 8 && strings.Contains(sealed, pt) {
 			t.Fatalf("sealed value contains the plaintext: %q", sealed)
 		}
 		if !strings.HasPrefix(sealed, prefix) {
