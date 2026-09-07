@@ -31,9 +31,19 @@ func (inventoryStage) Run(ctx context.Context, rc *RunContext) error {
 	}
 	rc.Art.RepoDir = rc.Snapshot.Dir
 
-	var files []core.File
-	if pc, ok := conn.(source.ProgressConnector); ok {
-		var rep source.InventoryReport
+	// The two arms differ ONLY in how the inventory is obtained; everything after
+	// them applies to both, so the plan's per-run file cap lives past the join.
+	// It used to sit inside the fallback arm alone — which no real connector can
+	// reach, since git and jira both implement ProgressConnector — so between the
+	// cap landing (2026-08-07) and this fix it refused exactly zero runs while 35
+	// went over it, the largest at 4,373 files against a 1,000 limit. A guard that
+	// one branch can walk past is not a guard; keep the branch to the inventory.
+	var (
+		files []core.File
+		rep   source.InventoryReport
+	)
+	pc, withProgress := conn.(source.ProgressConnector)
+	if withProgress {
 		files, rep, err = pc.InventoryWithProgress(ctx, rc.Snapshot, *rc.Source,
 			func(tracked int) { rc.Info("scanning %d tracked files", tracked) },
 			func(i1, total int) {
@@ -41,24 +51,13 @@ func (inventoryStage) Run(ctx context.Context, rc *RunContext) error {
 					rc.Step(i1, total, "classifying files")
 				}
 			})
-		if err != nil {
-			return err
-		}
-		if err := saveFiles(rc, files); err != nil {
-			return err
-		}
-		if rep.Scoped > 0 {
-			rc.Info("scoped out %d files (subpath/include/exclude)", rep.Scoped)
-		}
-		rc.Info("kept %d files (%d binary, %d empty skipped) across %d languages",
-			len(files), rep.Binary, rep.Empty, rep.Langs)
-		return nil
+	} else {
+		files, err = conn.Inventory(ctx, rc.Snapshot, *rc.Source)
 	}
-
-	// Fallback for connectors without the progress upgrade.
-	if files, err = conn.Inventory(ctx, rc.Snapshot, *rc.Source); err != nil {
+	if err != nil {
 		return err
 	}
+	// Before saveFiles: a run we are about to refuse persists nothing.
 	if rc.MaxFiles > 0 && len(files) > rc.MaxFiles {
 		return fmt.Errorf("source has %d files, over this plan's limit of %d per run — narrow it with the source's subpath/include/exclude filters, or upgrade",
 			len(files), rc.MaxFiles)
@@ -66,7 +65,15 @@ func (inventoryStage) Run(ctx context.Context, rc *RunContext) error {
 	if err := saveFiles(rc, files); err != nil {
 		return err
 	}
-	rc.Info("kept %d files", len(files))
+	if withProgress {
+		if rep.Scoped > 0 {
+			rc.Info("scoped out %d files (subpath/include/exclude)", rep.Scoped)
+		}
+		rc.Info("kept %d files (%d binary, %d empty skipped) across %d languages",
+			len(files), rep.Binary, rep.Empty, rep.Langs)
+	} else {
+		rc.Info("kept %d files", len(files))
+	}
 	return nil
 }
 
