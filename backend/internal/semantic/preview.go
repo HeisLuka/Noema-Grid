@@ -57,12 +57,12 @@ type CandidateSlot struct {
 }
 
 type CandidateInstance struct {
-	RegionKey              string   `json:"region_key"`
-	OriginalText           string   `json:"original_text"`
-	ProposedCanonicalText  string   `json:"proposed_canonical_text,omitempty"`
-	Context                string   `json:"context,omitempty"`
-	Stance                 string   `json:"stance"`
-	ExtractionConfidence   *float64 `json:"extraction_confidence,omitempty"`
+	RegionKey             string   `json:"region_key"`
+	OriginalText          string   `json:"original_text"`
+	ProposedCanonicalText string   `json:"proposed_canonical_text,omitempty"`
+	Context               string   `json:"context,omitempty"`
+	Stance                string   `json:"stance"`
+	ExtractionConfidence  *float64 `json:"extraction_confidence,omitempty"`
 }
 
 type CandidateClaim struct {
@@ -191,10 +191,10 @@ func (s *PreviewService) PreviewPage(ctx context.Context, userID, spaceID, pageI
 		PageID:               pageID,
 		Profile:              profile,
 		SourceContentHash:     snapshot.ContentHash,
-		Candidates:            candidates,
-		CandidatePayloadHash:  candidateHash,
-		PreviewToken:          token,
-		ExpiresAt:             time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339),
+		Candidates:           candidates,
+		CandidatePayloadHash: candidateHash,
+		PreviewToken:         token,
+		ExpiresAt:            time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -203,7 +203,7 @@ func readPageSnapshot(ctx context.Context, db *sql.DB, spaceID, pageID int64) (P
 	err := db.QueryRowContext(ctx, `
 SELECT title, body
 FROM pages
-WHERE id = $1 AND space_id = $2`, pageID, spaceID).Scan(&title, &body)
+WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL`, pageID, spaceID).Scan(&title, &body)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PageSnapshot{}, ErrNotFound
 	}
