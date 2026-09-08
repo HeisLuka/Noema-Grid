@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/zcag/tela/backend/internal/semantic"
@@ -77,8 +78,8 @@ func decodeCandidateSet(raw string) (semantic.CandidateSet, error) {
 	payload := strings.TrimSpace(raw)
 	if strings.HasPrefix(payload, "```") {
 		lines := strings.Split(payload, "\n")
-		if len(lines) < 3 || !strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
-			return semantic.CandidateSet{}, fmt.Errorf("%w: unterminated markdown fence", ErrInvalidOutput)
+		if len(lines) < 3 || strings.TrimSpace(lines[len(lines)-1]) != "```" {
+			return semantic.CandidateSet{}, fmt.Errorf("%w: unterminated or trailing markdown fence", ErrInvalidOutput)
 		}
 		payload = strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
 	}
@@ -94,14 +95,11 @@ func decodeCandidateSet(raw string) (semantic.CandidateSet, error) {
 		return semantic.CandidateSet{}, fmt.Errorf("%w: decode: %v", ErrInvalidOutput, err)
 	}
 	var trailing any
-	if err := dec.Decode(&trailing); !errors.Is(err, context.Canceled) && err == nil {
-		return semantic.CandidateSet{}, fmt.Errorf("%w: multiple JSON values", ErrInvalidOutput)
-	} else if err != nil && !errors.Is(err, errors.New("EOF")) {
-		// json.Decoder returns io.EOF for a clean end. Avoid accepting arbitrary
-		// prose after the object simply because the first Decode succeeded.
-		if !strings.Contains(err.Error(), "EOF") {
-			return semantic.CandidateSet{}, fmt.Errorf("%w: trailing data: %v", ErrInvalidOutput, err)
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return semantic.CandidateSet{}, fmt.Errorf("%w: multiple JSON values", ErrInvalidOutput)
 		}
+		return semantic.CandidateSet{}, fmt.Errorf("%w: trailing data: %v", ErrInvalidOutput, err)
 	}
 	return out, nil
 }
