@@ -23,6 +23,7 @@ const maxSemanticSourceBytes = 128 << 10 // 128 KiB for the first non-chunked ex
 var (
 	ErrInvalidOutput  = errors.New("semantic llm extractor: invalid output")
 	ErrSourceTooLarge = errors.New("semantic llm extractor: source too large")
+	ErrCompletion     = errors.New("semantic llm extractor: completion failed")
 )
 
 // Completer is the narrow subset of llm.Service used by semantic extraction.
@@ -55,7 +56,7 @@ func (e *Extractor) Extract(ctx context.Context, in semantic.ExtractionInput) (s
 	}
 	out, err := e.llm.Complete(ctx, systemPrompt(in.Profile), userPrompt)
 	if err != nil {
-		return semantic.CandidateSet{}, err
+		return semantic.CandidateSet{}, fmt.Errorf("%w: %v", ErrCompletion, err)
 	}
 
 	candidates, err := decodeCandidateSet(out)
