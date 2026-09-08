@@ -11,7 +11,7 @@ var ErrNotAuthorized = errors.New("semantic: not authorized")
 
 // Service is the authorization boundary for semantic-core operations exposed to
 // HTTP/MCP callers. Repository remains the persistence primitive; Service always
-// checks the live Tela space_access view before reading or mutating semantic data.
+// checks the live Tela space_access view on every read or mutation.
 type Service struct {
 	db   *sql.DB
 	repo *Repository
