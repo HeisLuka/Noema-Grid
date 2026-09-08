@@ -15,7 +15,7 @@ func TestCommitPreviewStaleIdempotencyAndCrossSourceClaimIdentity(t *testing.T) 
 	d := testdb.New(t)
 	ctx := context.Background()
 
-	var ownerID, viewerID, spaceID, page1ID, page2ID int64
+	var ownerID, viewerID, spaceID, page1ID, page2ID, page3ID int64
 	if err := d.QueryRow(`INSERT INTO users(username,password_hash) VALUES ('commit-owner','x') RETURNING id`).Scan(&ownerID); err != nil {
 		t.Fatal(err)
 	}
@@ -37,6 +37,11 @@ func TestCommitPreviewStaleIdempotencyAndCrossSourceClaimIdentity(t *testing.T) 
 	title2 := "Фёдор Воронов — источник B"
 	body2 := "Возвращение домой датируется 1948 годом."
 	if err := d.QueryRow(`INSERT INTO pages(space_id,title,body) VALUES ($1,$2,$3) RETURNING id`, spaceID, title2, body2).Scan(&page2ID); err != nil {
+		t.Fatal(err)
+	}
+	title3 := "Фёдор Воронов — конкурирующий источник"
+	body3 := "Фёдор Воронов вернулся домой в 1947 году."
+	if err := d.QueryRow(`INSERT INTO pages(space_id,title,body) VALUES ($1,$2,$3) RETURNING id`, spaceID, title3, body3).Scan(&page3ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -129,9 +134,10 @@ SELECT
 	}
 
 	// Viewer can preview, but cannot commit canonical semantic state.
+	viewerCandidates := returnHomeCandidates(body2, "Возвращение Фёдора Воронова домой датируется 1948 годом", 1948)
 	if _, err := commitSvc.CommitPreview(ctx, viewerID, CommitInput{
-		PreviewToken:   mustSignPreview(t, signer, spaceID, page2ID, title2, body2, returnHomeCandidates(body2, "Возвращение Фёдора Воронова домой датируется 1948 годом", 1948)),
-		Candidates:     returnHomeCandidates(body2, "Возвращение Фёдора Воронова домой датируется 1948 годом", 1948),
+		PreviewToken:   mustSignPreview(t, signer, spaceID, page2ID, title2, body2, viewerCandidates),
+		Candidates:     viewerCandidates,
 		AcceptedKeys:   []string{"c:return"},
 		EntityChoices:  map[string]EntityChoice{"e:fedor": {ExistingEntityID: ptrInt64(first.Entities["e:fedor"])}},
 		IdempotencyKey: "viewer-forbidden",
@@ -167,9 +173,10 @@ SELECT
 		t.Fatalf("same claim should have two source instances, got %d", instances)
 	}
 
-	// A competing value is a separate proposition, even with the same subject.
-	competingCandidates := returnHomeCandidates(body2, "Фёдор Воронов вернулся домой в 1947 году", 1947)
-	competingToken := mustSignPreview(t, signer, spaceID, page2ID, title2, body2, competingCandidates)
+	// A genuinely competing source/value is a separate proposition, even with
+	// the same explicitly reused subject entity.
+	competingCandidates := returnHomeCandidates(body3, "Фёдор Воронов вернулся домой в 1947 году", 1947)
+	competingToken := mustSignPreview(t, signer, spaceID, page3ID, title3, body3, competingCandidates)
 	competing, err := commitSvc.CommitPreview(ctx, ownerID, CommitInput{
 		PreviewToken:   competingToken,
 		Candidates:     competingCandidates,
