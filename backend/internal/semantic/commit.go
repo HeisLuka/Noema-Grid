@@ -401,8 +401,12 @@ func prepareCommitSelection(candidates CandidateSet, accepted []string, choices 
 			return commitSelection{}, fmt.Errorf("%w: entity %q is invalid", ErrInvalidSelection, entityKey)
 		}
 		choice, ok := choices[entityKey]
-		if !ok || (choice.ExistingEntityID == nil) == !choice.CreateNew {
-			return commitSelection{}, fmt.Errorf("%w: entity %q needs exactly one explicit identity choice", ErrInvalidSelection, entityKey)
+		if !ok {
+			return commitSelection{}, fmt.Errorf("%w: entity %q needs an explicit identity choice", ErrInvalidSelection, entityKey)
+		}
+		hasExisting := choice.ExistingEntityID != nil
+		if hasExisting == choice.CreateNew {
+			return commitSelection{}, fmt.Errorf("%w: entity %q needs exactly one of existing_entity_id or create_new", ErrInvalidSelection, entityKey)
 		}
 		if choice.ExistingEntityID != nil && *choice.ExistingEntityID == 0 {
 			return commitSelection{}, fmt.Errorf("%w: entity %q has invalid existing id", ErrInvalidSelection, entityKey)
@@ -555,10 +559,13 @@ WHERE user_id = $1 AND idem_key = $2`, userID, key).Scan(&tool, &stored); err !=
 
 func readPageSnapshotTx(ctx context.Context, tx *sql.Tx, spaceID, pageID int64) (PageSnapshot, error) {
 	var title, body string
+	// Hold a shared row lock until semantic persistence commits. A concurrent page
+	// UPDATE/DELETE therefore cannot move the source after the stale-hash check.
 	err := tx.QueryRowContext(ctx, `
 SELECT title, body
 FROM pages
-WHERE id = $1 AND space_id = $2`, pageID, spaceID).Scan(&title, &body)
+WHERE id = $1 AND space_id = $2
+FOR SHARE`, pageID, spaceID).Scan(&title, &body)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PageSnapshot{}, ErrNotFound
 	}
