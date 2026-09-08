@@ -73,7 +73,7 @@ func TestManualIngestIsIdempotentAndSpaceAuthorized(t *testing.T) {
 		t.Fatalf("retry duplicated semantic objects: first=%+v second=%+v", first, second)
 	}
 
-	traces, err := r.ClaimTraces(ctx, ownerID, first.ClaimID)
+	traces, err := r.ClaimTraces(ctx, ownerID, spaceID, first.ClaimID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestManualIngestIsIdempotentAndSpaceAuthorized(t *testing.T) {
 		t.Fatalf("unexpected provenance trace: %+v", traces)
 	}
 
-	leaked, err := r.ClaimTraces(ctx, outsiderID, first.ClaimID)
+	leaked, err := r.ClaimTraces(ctx, outsiderID, spaceID, first.ClaimID)
 	if err != nil {
 		t.Fatal(err)
 	}
