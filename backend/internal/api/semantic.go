@@ -12,6 +12,7 @@ import (
 
 	"github.com/zcag/tela/backend/internal/auth"
 	"github.com/zcag/tela/backend/internal/semantic"
+	"github.com/zcag/tela/backend/internal/semantic/llmextract"
 )
 
 const (
@@ -28,11 +29,14 @@ func (unavailableSemanticExtractor) Extract(context.Context, semantic.Extraction
 	return semantic.CandidateSet{}, errSemanticExtractorUnavailable
 }
 
-// semanticExtractor is the single transport seam for semantic extraction. The
-// transport/API slice deliberately ships without an LLM implementation; the
-// next adapter slice replaces this method while PreviewService remains agnostic.
+// semanticExtractor is the single transport seam for semantic extraction. It
+// reuses Tela's existing LLM service/config; the canonical semantic package
+// remains model-agnostic because the adapter lives in semantic/llmextract.
 func (s *Server) semanticExtractor() semantic.Extractor {
-	return unavailableSemanticExtractor{}
+	if s == nil || s.llm == nil || !s.llm.Enabled() {
+		return unavailableSemanticExtractor{}
+	}
+	return llmextract.New(s.llm)
 }
 
 type semanticPreviewRequest struct {
@@ -226,6 +230,12 @@ func semanticAPIError(err error) *apiErr {
 	switch {
 	case errors.Is(err, errSemanticExtractorUnavailable):
 		return &apiErr{http.StatusServiceUnavailable, "semantic_extractor_unavailable", "semantic extraction is not configured"}
+	case errors.Is(err, llmextract.ErrSourceTooLarge):
+		return &apiErr{http.StatusRequestEntityTooLarge, "semantic_source_too_large", "source page is too large for the current semantic extractor"}
+	case errors.Is(err, llmextract.ErrInvalidOutput):
+		return &apiErr{http.StatusBadGateway, "semantic_extractor_invalid_output", "semantic extractor returned an invalid or ungrounded candidate graph"}
+	case errors.Is(err, llmextract.ErrCompletion):
+		return &apiErr{http.StatusBadGateway, "semantic_extractor_failed", "semantic extraction model request failed"}
 	case errors.Is(err, semantic.ErrNotAuthorized):
 		return &apiErr{http.StatusForbidden, "semantic_not_authorized", "semantic operation is not authorized"}
 	case errors.Is(err, semantic.ErrNotFound):
