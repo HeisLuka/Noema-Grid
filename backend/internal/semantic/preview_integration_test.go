@@ -163,6 +163,17 @@ RETURNING id`, spaceID).Scan(&pageID); err != nil {
 	if changedPreview.PreviewToken == ownerPreview.PreviewToken {
 		t.Fatal("page mutation did not change preview token")
 	}
+
+	callsBeforeTrash := extractor.calls
+	if _, err := d.Exec(`UPDATE pages SET deleted_at=tela_now() WHERE id=$1`, pageID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := previewSvc.PreviewPage(ctx, ownerID, spaceID, pageID, ProfileGenealogy); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("trashed page error = %v, want ErrNotFound", err)
+	}
+	if extractor.calls != callsBeforeTrash {
+		t.Fatal("extractor ran for trashed page")
+	}
 	assertSemanticCoreEmpty(t, d, spaceID)
 }
 
