@@ -16,9 +16,21 @@ type Repository struct {
 func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
 
 // IngestManual persists the Phase-0 provenance chain and canonical claim in one
-// transaction. The DB unique constraints are the concurrency backstop: retries
-// reuse logical source/version/claim rows and do not duplicate instances.
+// transaction. It is intentionally a low-level repository primitive for tests
+// and internal maintenance jobs. User-facing callers should go through Service,
+// which uses IngestManualAuthorized and checks live space_access in the same tx.
 func (r *Repository) IngestManual(ctx context.Context, in ManualIngest) (IngestResult, error) {
+	return r.ingestManual(ctx, 0, false, in)
+}
+
+// IngestManualAuthorized performs the same atomic ingest, but the write is
+// rejected unless userID is a live owner/editor of the target space. The access
+// check and write share one transaction, avoiding a check-then-write race.
+func (r *Repository) IngestManualAuthorized(ctx context.Context, userID int64, in ManualIngest) (IngestResult, error) {
+	return r.ingestManual(ctx, userID, true, in)
+}
+
+func (r *Repository) ingestManual(ctx context.Context, userID int64, authorize bool, in ManualIngest) (IngestResult, error) {
 	if r == nil || r.db == nil {
 		return IngestResult{}, errors.New("semantic ingest: nil database")
 	}
@@ -35,6 +47,11 @@ func (r *Repository) IngestManual(ctx context.Context, in ManualIngest) (IngestR
 		return IngestResult{}, fmt.Errorf("semantic ingest: begin: %w", err)
 	}
 	defer tx.Rollback()
+	if authorize {
+		if err := requireSpaceAccess(ctx, tx, userID, in.Source.SpaceID, true); err != nil {
+			return IngestResult{}, err
+		}
+	}
 
 	res := IngestResult{Fingerprint: fingerprint}
 	if res.SourceID, err = upsertSource(ctx, tx, in.Source); err != nil {
@@ -148,7 +165,7 @@ INSERT INTO sem_claims(
     space_id, canonical_text, claim_type, predicate, claim_fingerprint,
     valid_from, valid_to, time_precision, time_note, qualifiers, created_by)
 VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::date,NULLIF($7,'')::date,NULLIF($8,''),$9,$10::jsonb,$11)
-ON CONFLICT (space_id, claim_fingerprint)
+ON CONFLICT (space_id, claim_fingerprint) WHERE claim_fingerprint IS NOT NULL AND state = 'active'
 DO UPDATE SET canonical_text = EXCLUDED.canonical_text,
               updated_at = tela_now()
 RETURNING id`, c.SpaceID, c.CanonicalText, claimType, strings.TrimSpace(strings.ToLower(c.Predicate)), fingerprint,
@@ -161,7 +178,7 @@ func replaceClaimSlots(ctx context.Context, tx *sql.Tx, spaceID, claimID int64, 
 	// A fingerprint collision/retry must describe the same structural slots. We
 	// therefore validate rather than blindly mutate identity-bearing data.
 	var existing int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sem_claim_slots WHERE claim_id=$1`, claimID).Scan(&existing); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sem_claim_slots WHERE space_id=$1 AND claim_id=$2`, spaceID, claimID).Scan(&existing); err != nil {
 		return wrap("count claim slots", err)
 	}
 	if existing > 0 {
@@ -183,6 +200,9 @@ func upsertClaimInstance(ctx context.Context, tx *sql.Tx, spaceID, claimID, regi
 	stance := strings.TrimSpace(strings.ToLower(in.Stance))
 	if stance == "" {
 		stance = "affirms"
+	}
+	if stance != "affirms" && stance != "denies" {
+		return 0, fmt.Errorf("semantic claim instance: unsupported stance %q", in.Stance)
 	}
 	createdBy := strings.TrimSpace(in.CreatedBy)
 	if createdBy == "" {
@@ -206,9 +226,9 @@ RETURNING id`, spaceID, claimID, regionID, in.OriginalText, in.ProposedCanonical
 
 // ClaimTraces returns provenance only after a live authorization join through
 // space_access. No cached semantic permission is consulted.
-func (r *Repository) ClaimTraces(ctx context.Context, userID, claimID int64) ([]ClaimTrace, error) {
+func (r *Repository) ClaimTraces(ctx context.Context, userID, spaceID, claimID int64) ([]ClaimTrace, error) {
 	rows, err := r.db.QueryContext(ctx, `
-SELECT c.id, c.canonical_text, c.predicate, c.claim_fingerprint,
+SELECT c.id, c.canonical_text, COALESCE(c.predicate,''), COALESCE(c.claim_fingerprint,''),
        ci.id, ci.stance, ci.original_text,
        sr.id, sr.locator_kind, sr.locator, sr.excerpt,
        sv.id, sv.content_hash,
@@ -219,8 +239,8 @@ JOIN sem_claim_instances ci ON ci.claim_id = c.id AND ci.space_id = c.space_id
 JOIN sem_source_regions sr ON sr.id = ci.source_region_id AND sr.space_id = c.space_id
 JOIN sem_source_versions sv ON sv.id = sr.source_version_id AND sv.space_id = c.space_id
 JOIN sem_sources s ON s.id = sv.source_id AND s.space_id = c.space_id
-WHERE c.id = $2
-ORDER BY ci.id`, userID, claimID)
+WHERE c.space_id = $2 AND c.id = $3
+ORDER BY ci.id`, userID, spaceID, claimID)
 	if err != nil {
 		return nil, wrap("query claim traces", err)
 	}
