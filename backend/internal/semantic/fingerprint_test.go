@@ -13,6 +13,7 @@ func TestFingerprintIgnoresWordingAndSlotOrder(t *testing.T) {
 		Predicate:     "person.location",
 		ValidFrom:     "1946-01-01",
 		ValidTo:       "1946-12-31",
+		TimePrecision: "year",
 		Qualifiers:    json.RawMessage(`{"certainty":"reported","scope":"year"}`),
 		Slots: []Slot{
 			{Role: "subject", EntityID: &person},
@@ -63,6 +64,30 @@ func TestFingerprintSeparatesCompetingValues(t *testing.T) {
 	}
 	if fa == fb {
 		t.Fatal("competing return years collapsed to one fingerprint")
+	}
+}
+
+func TestFingerprintSeparatesTimePrecision(t *testing.T) {
+	person := int64(42)
+	a := ClaimDraft{
+		Predicate:     "person.returned_home",
+		ValidFrom:     "1948-01-01",
+		TimePrecision: "year",
+		Slots:         []Slot{{Role: "subject", EntityID: &person}},
+	}
+	b := a
+	b.TimePrecision = "day"
+
+	fa, err := Fingerprint(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, err := Fingerprint(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fa == fb {
+		t.Fatal("different time precision collapsed to one fingerprint")
 	}
 }
 
