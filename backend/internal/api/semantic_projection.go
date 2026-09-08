@@ -54,13 +54,11 @@ func (s *Server) semanticMaterializeProjectionCore(
 	}
 	defer conn.Close()
 	lockKey := semanticProjectionLockNamespace ^ projectionID
-	var lockVoid any
-	if err := conn.QueryRowContext(ctx, `SELECT pg_advisory_lock($1)`, lockKey).Scan(&lockVoid); err != nil {
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, lockKey); err != nil {
 		return semanticProjectionMaterialization{}, &apiErr{http.StatusInternalServerError, "semantic_internal", "acquire semantic projection lock failed"}
 	}
 	defer func() {
-		var unlocked bool
-		_ = conn.QueryRowContext(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey).Scan(&unlocked)
+		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey)
 	}()
 
 	svc := semantic.NewService(s.DB)
