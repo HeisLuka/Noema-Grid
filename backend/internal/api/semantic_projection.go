@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -67,7 +66,7 @@ func (s *Server) semanticMaterializeProjectionCore(
 	svc := semantic.NewService(s.DB)
 	snapshot, err := svc.BuildProjectionSnapshot(ctx, u.ID, spaceID, projectionID)
 	if err != nil {
-		return semanticProjectionMaterialization{}, semanticAPIError(err)
+		return semanticProjectionMaterialization{}, semanticProjectionAPIError(err)
 	}
 	props := semanticProjectionProps(nil, snapshot)
 	writeCtx := withAgentWrite(ctx)
@@ -90,7 +89,7 @@ func (s *Server) semanticMaterializeProjectionCore(
 			return semanticProjectionMaterialization{}, ae
 		}
 		if page.SpaceID != spaceID || !semanticManagedProjectionPageMatches(page.Props, snapshot) {
-			return semanticProjectionMaterialization{}, semanticAPIError(semantic.ErrProjectionConflict)
+			return semanticProjectionMaterialization{}, semanticProjectionAPIError(semantic.ErrProjectionConflict)
 		}
 		pageID = page.ID
 		props = semanticProjectionProps(page.Props, snapshot)
@@ -107,7 +106,7 @@ func (s *Server) semanticMaterializeProjectionCore(
 
 	projection, err := svc.FinalizeProjectionSnapshot(ctx, u.ID, snapshot, pageID)
 	if err != nil {
-		return semanticProjectionMaterialization{}, semanticAPIError(err)
+		return semanticProjectionMaterialization{}, semanticProjectionAPIError(err)
 	}
 	return semanticProjectionMaterialization{
 		ProjectionID: projection.ID,
@@ -116,6 +115,17 @@ func (s *Server) semanticMaterializeProjectionCore(
 		Revision:     projection.Revision,
 		SnapshotHash: snapshot.SnapshotHash,
 	}, nil
+}
+
+func semanticProjectionAPIError(err error) *apiErr {
+	switch {
+	case errors.Is(err, semantic.ErrProjectionConflict):
+		return &apiErr{http.StatusConflict, "semantic_projection_conflict", "semantic projection conflicts with the managed page"}
+	case errors.Is(err, semantic.ErrInvalidProjection):
+		return &apiErr{http.StatusUnprocessableEntity, "semantic_invalid_projection", "semantic projection is invalid"}
+	default:
+		return semanticAPIError(err)
+	}
 }
 
 func semanticProjectionProps(existing map[string]any, snapshot semantic.ProjectionSnapshot) map[string]any {
@@ -171,9 +181,3 @@ func semanticProjectionPropInt64(v any) (int64, bool) {
 		return 0, false
 	}
 }
-
-// Assert imports remain purposeful when database/sql changes the concrete Conn
-// implementation: the materializer intentionally relies on a pinned SQL session
-// for the advisory lock rather than a process-local mutex.
-var _ *sql.Conn
-var _ = errors.Is
