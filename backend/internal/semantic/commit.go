@@ -564,7 +564,7 @@ func readPageSnapshotTx(ctx context.Context, tx *sql.Tx, spaceID, pageID int64) 
 	err := tx.QueryRowContext(ctx, `
 SELECT title, body
 FROM pages
-WHERE id = $1 AND space_id = $2
+WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL
 FOR SHARE`, pageID, spaceID).Scan(&title, &body)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PageSnapshot{}, ErrNotFound
