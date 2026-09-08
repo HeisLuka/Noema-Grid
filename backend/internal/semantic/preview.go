@@ -18,9 +18,9 @@ var ErrNotFound = errors.New("semantic: not found")
 type ExtractionProfile string
 
 const (
-	ProfileGenealogy          ExtractionProfile = "genealogy"
-	ProfileResearchDense      ExtractionProfile = "research_dense"
-	ProfileTechnical          ExtractionProfile = "technical"
+	ProfileGenealogy           ExtractionProfile = "genealogy"
+	ProfileResearchDense       ExtractionProfile = "research_dense"
+	ProfileTechnical           ExtractionProfile = "technical"
 	ProfileArgumentativeSparse ExtractionProfile = "argumentative_sparse"
 )
 
@@ -56,32 +56,42 @@ type CandidateSlot struct {
 	LiteralKind string          `json:"literal_kind,omitempty"`
 }
 
+type CandidateInstance struct {
+	RegionKey              string   `json:"region_key"`
+	OriginalText           string   `json:"original_text"`
+	ProposedCanonicalText  string   `json:"proposed_canonical_text,omitempty"`
+	Context                string   `json:"context,omitempty"`
+	Stance                 string   `json:"stance"`
+	ExtractionConfidence   *float64 `json:"extraction_confidence,omitempty"`
+}
+
 type CandidateClaim struct {
-	Key            string          `json:"key"`
-	CanonicalText  string          `json:"canonical_text"`
-	ClaimType      string          `json:"claim_type"`
-	Predicate      string          `json:"predicate,omitempty"`
-	ValidFrom      string          `json:"valid_from,omitempty"`
-	ValidTo        string          `json:"valid_to,omitempty"`
-	TimePrecision  string          `json:"time_precision,omitempty"`
-	Qualifiers     json.RawMessage `json:"qualifiers,omitempty"`
-	Slots          []CandidateSlot `json:"slots,omitempty"`
+	Key           string              `json:"key"`
+	CanonicalText string              `json:"canonical_text"`
+	ClaimType     string              `json:"claim_type"`
+	Predicate     string              `json:"predicate,omitempty"`
+	ValidFrom     string              `json:"valid_from,omitempty"`
+	ValidTo       string              `json:"valid_to,omitempty"`
+	TimePrecision string              `json:"time_precision,omitempty"`
+	Qualifiers    json.RawMessage     `json:"qualifiers,omitempty"`
+	Slots         []CandidateSlot     `json:"slots,omitempty"`
+	Instances     []CandidateInstance `json:"instances,omitempty"`
 }
 
 type CandidateRegion struct {
-	Key          string          `json:"key"`
-	LocatorKind  string          `json:"locator_kind"`
-	Locator      json.RawMessage `json:"locator"`
-	Excerpt      string          `json:"excerpt"`
-	ExcerptHash  string          `json:"excerpt_hash"`
+	Key         string          `json:"key"`
+	LocatorKind string          `json:"locator_kind"`
+	Locator     json.RawMessage `json:"locator"`
+	Excerpt     string          `json:"excerpt"`
+	ExcerptHash string          `json:"excerpt_hash"`
 }
 
 type CandidateRelation struct {
-	Key          string  `json:"key"`
-	FromClaimKey string  `json:"from_claim_key"`
-	ToClaimKey   string  `json:"to_claim_key"`
-	RelationType string  `json:"relation_type"`
-	Reason       string  `json:"reason,omitempty"`
+	Key          string   `json:"key"`
+	FromClaimKey string   `json:"from_claim_key"`
+	ToClaimKey   string   `json:"to_claim_key"`
+	RelationType string   `json:"relation_type"`
+	Reason       string   `json:"reason,omitempty"`
 	Confidence   *float64 `json:"confidence,omitempty"`
 }
 
@@ -95,12 +105,12 @@ type CandidateGap struct {
 }
 
 type CandidateSet struct {
-	Entities   []CandidateEntity   `json:"entities,omitempty"`
-	Claims     []CandidateClaim    `json:"claims,omitempty"`
-	Regions    []CandidateRegion   `json:"regions,omitempty"`
-	Relations  []CandidateRelation `json:"relations,omitempty"`
-	Gaps       []CandidateGap      `json:"gaps,omitempty"`
-	Warnings   []string            `json:"warnings,omitempty"`
+	Entities  []CandidateEntity   `json:"entities,omitempty"`
+	Claims    []CandidateClaim    `json:"claims,omitempty"`
+	Regions   []CandidateRegion   `json:"regions,omitempty"`
+	Relations []CandidateRelation `json:"relations,omitempty"`
+	Gaps      []CandidateGap      `json:"gaps,omitempty"`
+	Warnings  []string            `json:"warnings,omitempty"`
 }
 
 type ExtractionInput struct {
@@ -116,11 +126,11 @@ type Preview struct {
 	SpaceID              int64             `json:"space_id"`
 	PageID               int64             `json:"page_id"`
 	Profile              ExtractionProfile `json:"profile"`
-	SourceContentHash     string            `json:"source_content_hash"`
+	SourceContentHash    string            `json:"source_content_hash"`
 	Candidates           CandidateSet      `json:"candidates"`
-	CandidatePayloadHash  string            `json:"candidate_payload_hash"`
-	PreviewToken          string            `json:"preview_token"`
-	ExpiresAt             string            `json:"expires_at"`
+	CandidatePayloadHash string            `json:"candidate_payload_hash"`
+	PreviewToken         string            `json:"preview_token"`
+	ExpiresAt            string            `json:"expires_at"`
 }
 
 type PreviewService struct {
@@ -177,14 +187,14 @@ func (s *PreviewService) PreviewPage(ctx context.Context, userID, spaceID, pageI
 		return Preview{}, err
 	}
 	return Preview{
-		SpaceID:             spaceID,
-		PageID:              pageID,
-		Profile:             profile,
-		SourceContentHash:    snapshot.ContentHash,
-		Candidates:          candidates,
-		CandidatePayloadHash: candidateHash,
-		PreviewToken:         token,
-		ExpiresAt:            time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339),
+		SpaceID:              spaceID,
+		PageID:               pageID,
+		Profile:              profile,
+		SourceContentHash:     snapshot.ContentHash,
+		Candidates:            candidates,
+		CandidatePayloadHash:  candidateHash,
+		PreviewToken:          token,
+		ExpiresAt:             time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -244,6 +254,7 @@ func validateCandidateSet(in CandidateSet) error {
 		seen[key] = kind
 		return nil
 	}
+
 	for _, x := range in.Entities {
 		if err := add("entity", x.Key); err != nil {
 			return err
@@ -252,14 +263,6 @@ func validateCandidateSet(in CandidateSet) error {
 	for _, x := range in.Claims {
 		if err := add("claim", x.Key); err != nil {
 			return err
-		}
-		for _, slot := range x.Slots {
-			if strings.TrimSpace(slot.Role) == "" || slot.Ordinal < 0 {
-				return fmt.Errorf("semantic preview: claim %q has invalid slot", x.Key)
-			}
-			if (slot.EntityKey == nil) == (len(slot.Literal) == 0) {
-				return fmt.Errorf("semantic preview: claim %q slot %q must have exactly one entity_key or literal", x.Key, slot.Role)
-			}
 		}
 	}
 	for _, x := range in.Regions {
@@ -275,6 +278,55 @@ func validateCandidateSet(in CandidateSet) error {
 	for _, x := range in.Gaps {
 		if err := add("gap", x.Key); err != nil {
 			return err
+		}
+	}
+
+	is := func(key, kind string) bool { return seen[strings.TrimSpace(key)] == kind }
+	for _, x := range in.Claims {
+		if strings.TrimSpace(x.CanonicalText) == "" {
+			return fmt.Errorf("semantic preview: claim %q has empty canonical_text", x.Key)
+		}
+		for _, slot := range x.Slots {
+			if strings.TrimSpace(slot.Role) == "" || slot.Ordinal < 0 {
+				return fmt.Errorf("semantic preview: claim %q has invalid slot", x.Key)
+			}
+			if (slot.EntityKey == nil) == (len(slot.Literal) == 0) {
+				return fmt.Errorf("semantic preview: claim %q slot %q must have exactly one entity_key or literal", x.Key, slot.Role)
+			}
+			if slot.EntityKey != nil && !is(*slot.EntityKey, "entity") {
+				return fmt.Errorf("semantic preview: claim %q slot %q references unknown entity %q", x.Key, slot.Role, *slot.EntityKey)
+			}
+		}
+		for _, instance := range x.Instances {
+			if !is(instance.RegionKey, "region") {
+				return fmt.Errorf("semantic preview: claim %q instance references unknown region %q", x.Key, instance.RegionKey)
+			}
+			stance := strings.TrimSpace(strings.ToLower(instance.Stance))
+			if stance != "affirms" && stance != "denies" {
+				return fmt.Errorf("semantic preview: claim %q instance has unsupported stance %q", x.Key, instance.Stance)
+			}
+		}
+	}
+	for _, x := range in.Relations {
+		if !is(x.FromClaimKey, "claim") || !is(x.ToClaimKey, "claim") {
+			return fmt.Errorf("semantic preview: relation %q references unknown claim", x.Key)
+		}
+		if strings.TrimSpace(x.FromClaimKey) == strings.TrimSpace(x.ToClaimKey) {
+			return fmt.Errorf("semantic preview: relation %q is a self relation", x.Key)
+		}
+		if !validRelationType(strings.TrimSpace(strings.ToLower(x.RelationType))) {
+			return fmt.Errorf("semantic preview: relation %q has unsupported type %q", x.Key, x.RelationType)
+		}
+	}
+	for _, x := range in.Gaps {
+		if strings.TrimSpace(x.Question) == "" {
+			return fmt.Errorf("semantic preview: gap %q has empty question", x.Key)
+		}
+		if x.RelatedClaimKey != "" && !is(x.RelatedClaimKey, "claim") {
+			return fmt.Errorf("semantic preview: gap %q references unknown claim %q", x.Key, x.RelatedClaimKey)
+		}
+		if x.RelatedEntityKey != "" && !is(x.RelatedEntityKey, "entity") {
+			return fmt.Errorf("semantic preview: gap %q references unknown entity %q", x.Key, x.RelatedEntityKey)
 		}
 	}
 	return nil
@@ -308,6 +360,13 @@ func normalizeCandidateSet(in CandidateSet) (CandidateSet, error) {
 				return out.Claims[i].Slots[a].Ordinal < out.Claims[i].Slots[b].Ordinal
 			}
 			return out.Claims[i].Slots[a].Role < out.Claims[i].Slots[b].Role
+		})
+		out.Claims[i].Instances = append([]CandidateInstance(nil), out.Claims[i].Instances...)
+		sort.Slice(out.Claims[i].Instances, func(a, b int) bool {
+			if out.Claims[i].Instances[a].RegionKey == out.Claims[i].Instances[b].RegionKey {
+				return out.Claims[i].Instances[a].Stance < out.Claims[i].Instances[b].Stance
+			}
+			return out.Claims[i].Instances[a].RegionKey < out.Claims[i].Instances[b].RegionKey
 		})
 	}
 	sort.Slice(out.Claims, func(i, j int) bool { return out.Claims[i].Key < out.Claims[j].Key })
@@ -343,6 +402,9 @@ func normalizeCandidateSet(in CandidateSet) (CandidateSet, error) {
 func canonicalJSON(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, nil
+	}
+	if !json.Valid(raw) {
+		return nil, errors.New("invalid json")
 	}
 	var value any
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
