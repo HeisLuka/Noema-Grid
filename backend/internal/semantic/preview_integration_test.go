@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -165,9 +166,7 @@ RETURNING id`, spaceID).Scan(&pageID); err != nil {
 	assertSemanticCoreEmpty(t, d, spaceID)
 }
 
-func assertSemanticCoreEmpty(t *testing.T, d interface {
-	QueryRow(query string, args ...any) *sql.Row
-}, spaceID int64) {
+func assertSemanticCoreEmpty(t *testing.T, d *sql.DB, spaceID int64) {
 	t.Helper()
 	var count int
 	if err := d.QueryRow(`
