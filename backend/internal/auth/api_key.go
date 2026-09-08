@@ -333,11 +333,12 @@ func scopeAllowsMethod(scope, method string) bool {
 //
 //   - POST /api/feedback (M17.A.1) — submitting meta-feedback about Tela /
 //     tela-mcp themselves is allowed for every scope (including read).
-//     Rationale: the MCP `submit_feedback` tool is read-scope by design
-//     (feedback is observational; the lowest-trust keys must be able to
-//     report friction back to the developers).
+//   - POST /api/spaces/{id}/semantic/pages/{page_id}/preview — Noema preview is
+//     strictly read-only despite using POST for a structured request body. Read
+//     PATs may preview; canonical persistence remains on the separate commit
+//     route and is NOT carved out.
 func scopeAllowsRequest(scope, method, path string) bool {
-	if method == http.MethodPost && path == "/api/feedback" {
+	if method == http.MethodPost && (path == "/api/feedback" || isSemanticPreviewPath(path)) {
 		switch scope {
 		case ScopeRead, ScopeWrite, ScopeAdmin:
 			return true
@@ -345,4 +346,14 @@ func scopeAllowsRequest(scope, method, path string) bool {
 		return false
 	}
 	return scopeAllowsMethod(scope, method)
+}
+
+func isSemanticPreviewPath(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	return len(parts) == 7 &&
+		parts[0] == "api" &&
+		parts[1] == "spaces" &&
+		parts[3] == "semantic" &&
+		parts[4] == "pages" &&
+		parts[6] == "preview"
 }

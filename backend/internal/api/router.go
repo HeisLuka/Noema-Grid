@@ -139,6 +139,8 @@ func registerRoutes(srv *Server, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/spaces/{id}/index-version", srv.GetSpaceIndexVersion)
 	mux.HandleFunc("POST /api/spaces/{id}/import", srv.ImportSpace)
 	mux.HandleFunc("GET /api/spaces/{id}/export.zip", srv.ExportSpaceMarkdownZip)
+	mux.HandleFunc("POST /api/spaces/{id}/semantic/pages/{page_id}/preview", srv.SemanticPreview)
+	mux.HandleFunc("POST /api/spaces/{id}/semantic/commit", srv.SemanticCommit)
 
 	// atlas: source-grounded, coverage-audited doc generation (docs/atlas.md).
 	// First-class projects: owner-scoped reusable credentials, projects (name +

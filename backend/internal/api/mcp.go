@@ -121,6 +121,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	// initialize (generated from the editor's block manifest — see mcp_authoring.go).
 	server := mcp.NewServer(impl, &mcp.ServerOptions{Instructions: retrievalGuideMarkdown() + authoringGuideMarkdown(false) + importInstructionsSnippet()})
 	s.registerMCPTools(server)
+	s.registerSemanticMCPTools(server)
 	s.registerMCPResources(server)
 	s.registerMCPWidgets(server)
 	return server
